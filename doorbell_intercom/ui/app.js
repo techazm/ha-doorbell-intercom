@@ -440,6 +440,10 @@ async function loadConfig() {
     state.config  = await resp.json();
     state.haWebRtcUnsupported = state.config?.ha_webrtc_supported === false;
     renderDoorbellList();
+    // Ensure we're on the idle screen (especially after page refresh)
+    showScreen('idle');
+    // Stop any lingering video playback
+    endCall();
   } catch (e) {
     console.error('Failed to load config:', e.message);
   }
