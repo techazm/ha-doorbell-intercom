@@ -49,6 +49,8 @@ const el = {
   iconMicOff:    document.getElementById('icon-mic-off'),
 };
 
+let mediaReady = false;
+
 // ── Screen routing ────────────────────────────────────────────────────────────
 function showScreen(name) {
   Object.entries(screen).forEach(([k, el]) => el.classList.toggle('active', k === name));
@@ -313,17 +315,20 @@ function startMjpegFallback() {
   if (!entity) { el.callStatusTxt.textContent = 'No video available'; return; }
   console.log('Using MJPEG stream');
   stopSnapshotFallback();
+  mediaReady = false;
   el.callVideo.classList.add('hidden');
+  el.callNoVideo.classList.remove('hidden');
+  el.callMjpeg.classList.add('hidden');
   el.callMjpeg.src = `${apiBase}/api/stream/${entity}?t=${Date.now()}`;
-  el.callMjpeg.classList.remove('hidden');
-  el.callNoVideo.classList.add('hidden');
   el.callStatusTxt.textContent = 'Live (video only)';
 }
 
 function startSnapshotFallback(entity) {
   stopSnapshotFallback();
+  mediaReady = false;
   el.callVideo.classList.add('hidden');
-  el.callMjpeg.classList.remove('hidden');
+  el.callNoVideo.classList.remove('hidden');
+  el.callMjpeg.classList.add('hidden');
   const tick = () => {
     el.callMjpeg.src = `${apiBase}/api/snapshot/${entity}?t=${Date.now()}`;
   };
@@ -367,6 +372,7 @@ function waitForIceGathering(pc) {
 
 function showVideoStream(stream) {
   stopSnapshotFallback();
+  mediaReady = true;
   el.callMjpeg.src = '';
   el.callMjpeg.classList.add('hidden');
   el.callVideo.srcObject = stream;
@@ -420,6 +426,17 @@ el.callMjpeg.addEventListener('error', () => {
     console.warn('MJPEG failed to render, switching to snapshot mode');
     startSnapshotFallback(entity);
   }
+});
+
+el.callMjpeg.addEventListener('load', () => {
+  mediaReady = true;
+  el.callMjpeg.classList.remove('hidden');
+  el.callNoVideo.classList.add('hidden');
+});
+
+el.callVideo.addEventListener('loadeddata', () => {
+  mediaReady = true;
+  el.callNoVideo.classList.add('hidden');
 });
 
 // ── Config loading + doorbell list ────────────────────────────────────────────
