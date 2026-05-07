@@ -323,6 +323,11 @@ function startSnapshotFallback(entity) {
   el.callVideo.classList.add('hidden');
   el.callNoVideo.classList.remove('hidden');
   el.callMjpeg.classList.add('hidden');
+  
+  // Disable mic/speaker in snapshot mode (no audio)
+  document.getElementById('btn-mute').disabled = true;
+  document.getElementById('btn-speaker').disabled = true;
+  
   const tick = () => {
     el.callMjpeg.src = `${apiBase}/api/snapshot/${entity}?t=${Date.now()}`;
   };
@@ -373,22 +378,37 @@ function showVideoStream(stream) {
   el.callVideo.muted     = state.speakerMuted;
   el.callVideo.classList.remove('hidden');
   el.callNoVideo.classList.add('hidden');
+  
+  // Enable mic/speaker for WebRTC (has audio)
+  document.getElementById('btn-mute').disabled = false;
+  document.getElementById('btn-speaker').disabled = false;
 }
 
 // ── In-call controls ──────────────────────────────────────────────────────────
 document.getElementById('btn-mute').addEventListener('click', () => {
-  if (!state.localStream) return; // No microphone in snapshot mode
+  const btn = document.getElementById('btn-mute');
+  if (btn.disabled || !state.localStream) {
+    console.log('Mic not available:', { disabled: btn.disabled, hasStream: !!state.localStream });
+    return;
+  }
   state.muted = !state.muted;
   state.localStream.getAudioTracks().forEach(t => { t.enabled = !state.muted; });
   el.iconMic.classList.toggle('hidden',    state.muted);
   el.iconMicOff.classList.toggle('hidden', !state.muted);
   document.getElementById('btn-mute').classList.toggle('muted', state.muted);
+  console.log('Mic toggled:', state.muted ? 'muted' : 'unmuted');
 });
 
 document.getElementById('btn-speaker').addEventListener('click', () => {
+  const btn = document.getElementById('btn-speaker');
+  if (btn.disabled) {
+    console.log('Speaker not available in snapshot mode');
+    return;
+  }
   state.speakerMuted = !state.speakerMuted;
   if (el.callVideo.tagName === 'VIDEO') {
     el.callVideo.muted = state.speakerMuted;
+    console.log('Speaker toggled:', state.speakerMuted ? 'muted' : 'unmuted');
   }
   document.getElementById('btn-speaker').classList.toggle('active', !state.speakerMuted);
 });

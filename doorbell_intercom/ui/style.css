@@ -391,6 +391,7 @@ html, body {
 .btn-ctrl svg { width: 24px; height: 24px; }
 .btn-ctrl.active  { background: rgba(255,255,255,0.9); color: var(--bg); border-color: transparent; }
 .btn-ctrl.muted   { background: var(--red); border-color: transparent; }
+.btn-ctrl:disabled { opacity: 0.3; cursor: not-allowed; }
 
 /* ── Utility ───────────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }
