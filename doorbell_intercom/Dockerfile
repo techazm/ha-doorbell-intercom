@@ -14,8 +14,9 @@ RUN npm install --omit=dev
 COPY server/server.js ./
 COPY ui/ ./ui/
 
-# Startup script
-COPY run.sh /run.sh
-RUN chmod a+x /run.sh
+# Register as an s6-overlay service (required by HA base images)
+RUN mkdir -p /etc/services.d/doorbell_intercom
+COPY run.sh /etc/services.d/doorbell_intercom/run
+RUN chmod a+x /etc/services.d/doorbell_intercom/run
 
-CMD ["/run.sh"]
+CMD ["/init"]
