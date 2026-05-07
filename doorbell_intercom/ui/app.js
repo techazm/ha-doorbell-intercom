@@ -296,8 +296,15 @@ async function startHAWebRTC(entityId) {
 }
 
 async function applyWebRTCAnswer(msg) {
-  if (!state.pc) return;
+  if (!state.pc || state.pc.connectionState === 'closed') {
+    console.warn('WebRTC peer connection closed, ignoring answer');
+    return;
+  }
   try {
+    if (state.pc.signalingState !== 'have-local-offer') {
+      console.warn('Unexpected signaling state:', state.pc.signalingState);
+      return;
+    }
     await state.pc.setRemoteDescription({ type: 'answer', sdp: msg.answer });
     for (const c of msg.candidates || []) {
       await state.pc.addIceCandidate(c).catch(() => {});
@@ -324,9 +331,9 @@ function startSnapshotFallback(entity) {
   el.callNoVideo.classList.remove('hidden');
   el.callMjpeg.classList.add('hidden');
   
-  // Disable mic/speaker in snapshot mode (no audio)
+  // Only disable mic in snapshot mode (no microphone)
+  // Speaker button remains enabled for UI consistency
   document.getElementById('btn-mute').disabled = true;
-  document.getElementById('btn-speaker').disabled = true;
   
   const tick = () => {
     el.callMjpeg.src = `${apiBase}/api/snapshot/${entity}?t=${Date.now()}`;
@@ -379,9 +386,8 @@ function showVideoStream(stream) {
   el.callVideo.classList.remove('hidden');
   el.callNoVideo.classList.add('hidden');
   
-  // Enable mic/speaker for WebRTC (has audio)
+  // Enable mic button for WebRTC (has audio)
   document.getElementById('btn-mute').disabled = false;
-  document.getElementById('btn-speaker').disabled = false;
 }
 
 // ── In-call controls ──────────────────────────────────────────────────────────
@@ -400,13 +406,9 @@ document.getElementById('btn-mute').addEventListener('click', () => {
 });
 
 document.getElementById('btn-speaker').addEventListener('click', () => {
-  const btn = document.getElementById('btn-speaker');
-  if (btn.disabled) {
-    console.log('Speaker not available in snapshot mode');
-    return;
-  }
   state.speakerMuted = !state.speakerMuted;
-  if (el.callVideo.tagName === 'VIDEO') {
+  // Only mute video element if it's a VIDEO tag (WebRTC mode)
+  if (el.callVideo.tagName === 'VIDEO' && el.callVideo.srcObject) {
     el.callVideo.muted = state.speakerMuted;
     console.log('Speaker toggled:', state.speakerMuted ? 'muted' : 'unmuted');
   }
