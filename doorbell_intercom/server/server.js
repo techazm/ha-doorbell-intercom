@@ -16,9 +16,16 @@ const HA_WS_URL = 'ws://supervisor/core/websocket';
 
 let cfg = { doorbells: [], go2rtc_url: '', ring_timeout: 60 };
 try {
-  cfg = { ...cfg, ...JSON.parse(process.env.ADDON_CONFIG || '{}') };
+  if (process.env.ADDON_CONFIG) {
+    cfg = { ...cfg, ...JSON.parse(process.env.ADDON_CONFIG) };
+    console.log('Loaded config from ADDON_CONFIG');
+  } else {
+    const rawOptions = fs.readFileSync('/data/options.json', 'utf8');
+    cfg = { ...cfg, ...JSON.parse(rawOptions) };
+    console.log('Loaded config from /data/options.json');
+  }
 } catch (e) {
-  console.error('Failed to parse ADDON_CONFIG:', e.message);
+  console.error('Failed to load add-on config:', e.message);
 }
 
 const indexHtml = fs.readFileSync(path.join(__dirname, 'ui', 'index.html'), 'utf8');
