@@ -1,5 +1,5 @@
 name: Doorbell Intercom
-version: "1.0.4"
+version: "1.0.5"
 slug: doorbell_intercom
 description: >-
   Universal video intercom for any Home Assistant connected doorbell.
@@ -11,6 +11,7 @@ arch:
   - amd64
   - armhf
   - armv7
+init: false
 ingress: true
 ingress_port: 8765
 panel_icon: mdi:doorbell-video
