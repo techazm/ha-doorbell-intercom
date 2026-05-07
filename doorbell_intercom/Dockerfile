@@ -19,4 +19,7 @@ RUN mkdir -p /etc/services.d/doorbell_intercom
 COPY run.sh /etc/services.d/doorbell_intercom/run
 RUN chmod a+x /etc/services.d/doorbell_intercom/run
 
+# Debug: Show service files
+RUN echo "=== Service files ===" && ls -la /etc/services.d/doorbell_intercom/ && cat /etc/services.d/doorbell_intercom/run
+
 CMD ["/init"]

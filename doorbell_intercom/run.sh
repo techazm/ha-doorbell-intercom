@@ -1,7 +1,8 @@
 #!/bin/bash
-set -e
 
-echo "Starting Doorbell Intercom add-on v1.0.1..."
+echo "Starting Doorbell Intercom add-on..."
+echo "Current PID: $$"
+echo "Parent PID: $PPID"
 echo "ADDON_CONFIG: $ADDON_CONFIG"
 
 node /app/server.js
