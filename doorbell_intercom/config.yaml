@@ -1,5 +1,5 @@
 name: Doorbell Intercom
-version: "1.0.9"
+version: "1.0.10"
 slug: doorbell_intercom
 description: >-
   Universal video intercom for any Home Assistant connected doorbell.
@@ -21,14 +21,11 @@ homeassistant_api: true
 hassio_api: true
 options:
   doorbells: []
-  go2rtc_url: ""
   ring_timeout: 60
 schema:
   doorbells:
     - name: str
       doorbell_sensor: str
       camera_entity: str
-      go2rtc_stream: str?
       speaker_entity: str?
-  go2rtc_url: str
   ring_timeout: int

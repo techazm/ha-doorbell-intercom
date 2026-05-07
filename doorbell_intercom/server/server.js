@@ -14,7 +14,7 @@ const HA_TOKEN = process.env.SUPERVISOR_TOKEN || '';
 const HA_API = 'http://supervisor/core/api';
 const HA_WS_URL = 'ws://supervisor/core/websocket';
 
-let cfg = { doorbells: [], go2rtc_url: '', ring_timeout: 60 };
+let cfg = { doorbells: [], ring_timeout: 60 };
 try {
   if (process.env.ADDON_CONFIG) {
     cfg = { ...cfg, ...JSON.parse(process.env.ADDON_CONFIG) };
