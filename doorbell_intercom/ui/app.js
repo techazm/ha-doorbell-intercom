@@ -25,6 +25,7 @@ const state = {
   audioCtx:         null,
   ringTimer:        null,
   haWebRtcUnsupported: false,
+  snapshotTimer:    null,
 };
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
@@ -311,10 +312,29 @@ function startMjpegFallback() {
   const entity = state.pendingCamera;
   if (!entity) { el.callStatusTxt.textContent = 'No video available'; return; }
   console.log('Using MJPEG stream');
-  el.callMjpeg.src = `${apiBase}/api/stream/${entity}`;
+  stopSnapshotFallback();
+  el.callVideo.classList.add('hidden');
+  el.callMjpeg.src = `${apiBase}/api/stream/${entity}?t=${Date.now()}`;
   el.callMjpeg.classList.remove('hidden');
   el.callNoVideo.classList.add('hidden');
   el.callStatusTxt.textContent = 'Live (video only)';
+}
+
+function startSnapshotFallback(entity) {
+  stopSnapshotFallback();
+  el.callVideo.classList.add('hidden');
+  el.callMjpeg.classList.remove('hidden');
+  const tick = () => {
+    el.callMjpeg.src = `${apiBase}/api/snapshot/${entity}?t=${Date.now()}`;
+  };
+  tick();
+  state.snapshotTimer = setInterval(tick, 1200);
+  el.callStatusTxt.textContent = 'Live (snapshot mode)';
+}
+
+function stopSnapshotFallback() {
+  clearInterval(state.snapshotTimer);
+  state.snapshotTimer = null;
 }
 
 // ── WebRTC helpers ────────────────────────────────────────────────────────────
@@ -346,6 +366,9 @@ function waitForIceGathering(pc) {
 }
 
 function showVideoStream(stream) {
+  stopSnapshotFallback();
+  el.callMjpeg.src = '';
+  el.callMjpeg.classList.add('hidden');
   el.callVideo.srcObject = stream;
   el.callVideo.muted     = state.speakerMuted;
   el.callVideo.classList.remove('hidden');
@@ -377,6 +400,7 @@ document.getElementById('btn-hangup').addEventListener('click', () => {
 function endCall() {
   if (state.pc) { state.pc.close(); state.pc = null; }
   if (state.localStream) { state.localStream.getTracks().forEach(t => t.stop()); state.localStream = null; }
+  stopSnapshotFallback();
 
   el.callVideo.srcObject = null;
   el.callMjpeg.src       = '';
@@ -389,6 +413,14 @@ function endCall() {
   state.currentDoorbell = null;
   showScreen('idle');
 }
+
+el.callMjpeg.addEventListener('error', () => {
+  const entity = state.pendingCamera;
+  if (entity && !state.snapshotTimer) {
+    console.warn('MJPEG failed to render, switching to snapshot mode');
+    startSnapshotFallback(entity);
+  }
+});
 
 // ── Config loading + doorbell list ────────────────────────────────────────────
 async function loadConfig() {
