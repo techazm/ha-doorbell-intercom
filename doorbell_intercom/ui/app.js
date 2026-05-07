@@ -402,8 +402,8 @@ function renderDoorbellList() {
       </p>`;
     return;
   }
-  el.doorbellList.innerHTML = doorbells.map(d => `
-    <div class="doorbell-card">
+  el.doorbellList.innerHTML = doorbells.map((d, i) => `
+    <div class="doorbell-card" data-doorbell-index="${i}" role="button" tabindex="0" aria-label="Open ${escapeHtml(d.name)} intercom">
       <div class="doorbell-card-icon">
         <svg viewBox="0 0 24 24" fill="currentColor">
           <path d="M10 21h4a2 2 0 0 1-4 0M12 3a7 7 0 0 1 7 7c0 4-2.5 6.5-2.5 6.5h-9S5 14 5 10a7 7 0 0 1 7-7z"/>
@@ -416,6 +416,44 @@ function renderDoorbellList() {
       <span class="doorbell-card-badge">Ready</span>
     </div>
   `).join('');
+
+  // Allow opening a live intercom session directly from the idle list.
+  el.doorbellList.querySelectorAll('.doorbell-card').forEach((card) => {
+    const open = () => {
+      const idx = parseInt(card.dataset.doorbellIndex || '-1', 10);
+      openDoorbellFromList(idx);
+    };
+    card.addEventListener('click', open);
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        open();
+      }
+    });
+  });
+}
+
+async function openDoorbellFromList(index) {
+  const doorbell = state.config?.doorbells?.[index];
+  if (!doorbell) return;
+
+  state.currentDoorbell = doorbell.name;
+  state.pendingCamera   = doorbell.camera_entity;
+  state.pendingGo2rtc   = doorbell.go2rtc_stream || null;
+  state.pendingSpeaker  = doorbell.speaker_entity || null;
+
+  el.callDbName.textContent    = doorbell.name;
+  el.callStatusTxt.textContent = 'Connecting…';
+  el.callVideo.classList.add('hidden');
+  el.callMjpeg.classList.add('hidden');
+  el.callNoVideo.classList.remove('hidden');
+  showScreen('call');
+
+  if (state.pendingCamera) {
+    await startHAWebRTC(state.pendingCamera);
+  } else {
+    el.callStatusTxt.textContent = 'No camera configured';
+  }
 }
 
 // ── Browser push notifications (background tab) ───────────────────────────────
