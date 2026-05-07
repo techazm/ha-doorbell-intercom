@@ -377,18 +377,19 @@ function showVideoStream(stream) {
 
 // ── In-call controls ──────────────────────────────────────────────────────────
 document.getElementById('btn-mute').addEventListener('click', () => {
+  if (!state.localStream) return; // No microphone in snapshot mode
   state.muted = !state.muted;
-  if (state.localStream) {
-    state.localStream.getAudioTracks().forEach(t => { t.enabled = !state.muted; });
-  }
+  state.localStream.getAudioTracks().forEach(t => { t.enabled = !state.muted; });
   el.iconMic.classList.toggle('hidden',    state.muted);
   el.iconMicOff.classList.toggle('hidden', !state.muted);
   document.getElementById('btn-mute').classList.toggle('muted', state.muted);
 });
 
 document.getElementById('btn-speaker').addEventListener('click', () => {
-  state.speakerMuted    = !state.speakerMuted;
-  el.callVideo.muted    = state.speakerMuted;
+  state.speakerMuted = !state.speakerMuted;
+  if (el.callVideo.tagName === 'VIDEO') {
+    el.callVideo.muted = state.speakerMuted;
+  }
   document.getElementById('btn-speaker').classList.toggle('active', !state.speakerMuted);
 });
 
