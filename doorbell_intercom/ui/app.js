@@ -205,6 +205,10 @@ async function answerCall() {
   const camera   = state.pendingCamera;
   const go2rtc   = state.pendingGo2rtc;
 
+  console.log('📞 Answering doorbell:', doorbell);
+  console.log('go2rtc stream:', go2rtc, 'URL:', state.config?.go2rtc_url);
+  console.log('camera_entity:', camera);
+
   wsSend({ type: 'call_answered', doorbell });
 
   el.callDbName.textContent    = doorbell;
@@ -215,12 +219,16 @@ async function answerCall() {
   showScreen('call');
 
   if (go2rtc && state.config?.go2rtc_url) {
+    console.log('🎥 Trying go2rtc WebRTC...');
     await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
   } else if (camera) {
+    console.log('⚠️  No go2rtc configured, trying HA WebRTC...');
     if (state.haWebRtcUnsupported) {
+      console.log('⛔ HA WebRTC unsupported, using snapshot mode');
       startMjpegFallback();
       el.callStatusTxt.textContent = 'Live (video only)';
     } else {
+      console.log('📡 Attempting HA WebRTC relay...');
       await startHAWebRTC(camera);
     }
   } else {
@@ -231,6 +239,7 @@ async function answerCall() {
 // ── go2rtc WebRTC (direct — best quality + two-way audio) ────────────────────
 async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
   try {
+    console.log('🚀 Starting go2rtc WebRTC:', streamName, 'at', go2rtcUrl);
     const pc = buildPeerConnection();
     state.pc = pc;
 
@@ -238,6 +247,7 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     pc.addTransceiver('video', { direction: 'recvonly' });
 
     pc.ontrack = (e) => {
+      console.log('📹 Got video track from go2rtc');
       if (e.track.kind === 'video') showVideoStream(e.streams[0] || new MediaStream([e.track]));
     };
 
@@ -245,19 +255,21 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     await pc.setLocalDescription(offer);
     await waitForIceGathering(pc);
 
+    console.log('📤 Sending SDP offer to go2rtc...');
     const resp = await fetch(
       `${go2rtcUrl}/api/webrtc?src=${encodeURIComponent(streamName)}`,
       { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp }
     );
-    if (!resp.ok) throw new Error(`go2rtc HTTP ${resp.status}`);
+    if (!resp.ok) throw new Error(`go2rtc HTTP ${resp.status}: ${resp.statusText}`);
 
     const sdp = await resp.text();
     await pc.setRemoteDescription({ type: 'answer', sdp });
+    console.log('✅ go2rtc WebRTC connected!');
     el.callStatusTxt.textContent = 'Live';
 
   } catch (e) {
-    console.error('go2rtc WebRTC failed:', e.message);
-    startMjpegFallback();
+    console.error('❌ go2rtc WebRTC failed:', e.message);
+    startSnapshotFallback(state.pendingCamera);
   }
 }
 
@@ -462,6 +474,12 @@ async function loadConfig() {
     const resp    = await fetch(`${apiBase}/api/config`);
     state.config  = await resp.json();
     state.haWebRtcUnsupported = state.config?.ha_webrtc_supported === false;
+    console.log('⚙️  Config loaded:', {
+      doorbells: state.config?.doorbells?.length,
+      go2rtc_url: state.config?.go2rtc_url,
+      ha_webrtc_supported: state.config?.ha_webrtc_supported
+    });
+    console.log('🚪 Doorbells:', state.config?.doorbells);
     renderDoorbellList();
     // Ensure we're on the idle screen (especially after page refresh)
     showScreen('idle');
@@ -515,12 +533,18 @@ function renderDoorbellList() {
 
 async function openDoorbellFromList(index) {
   const doorbell = state.config?.doorbells?.[index];
-  if (!doorbell) return;
+  if (!doorbell) {
+    console.error('Doorbell not found at index:', index);
+    return;
+  }
 
   state.currentDoorbell = doorbell.name;
   state.pendingCamera   = doorbell.camera_entity;
   state.pendingGo2rtc   = doorbell.go2rtc_stream || null;
   state.pendingSpeaker  = doorbell.speaker_entity || null;
+
+  console.log('📱 Opening doorbell from list:', doorbell.name);
+  console.log('Config:', { go2rtc_stream: doorbell.go2rtc_stream, camera_entity: doorbell.camera_entity });
 
   el.callDbName.textContent    = doorbell.name;
   el.callStatusTxt.textContent = 'Connecting…';
@@ -533,15 +557,16 @@ async function openDoorbellFromList(index) {
   const camera   = state.pendingCamera;
 
   if (go2rtc && state.config?.go2rtc_url) {
-    // Prioritize go2rtc: direct WebRTC connection (two-way audio)
+    console.log('🎥 Trying go2rtc WebRTC...');
     await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
   } else if (camera) {
+    console.log('⚠️  No go2rtc configured, trying HA WebRTC...');
     if (state.haWebRtcUnsupported) {
-      // Fall back to snapshot if HA WebRTC unsupported
+      console.log('⛔ HA WebRTC unsupported, using snapshot mode');
       startSnapshotFallback(camera);
       el.callStatusTxt.textContent = 'Live (snapshot mode)';
     } else {
-      // Try HA WebRTC relay
+      console.log('📡 Attempting HA WebRTC relay...');
       await startHAWebRTC(camera);
     }
   } else {
