@@ -26,6 +26,7 @@ const state = {
   ringTimer:        null,
   haWebRtcUnsupported: true,
   snapshotTimer:    null,
+  hasWebRTC:        false,      // Flag to track active WebRTC
 };
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
@@ -408,12 +409,16 @@ function waitForIceGathering(pc) {
 function showVideoStream(stream) {
   stopSnapshotFallback();
   mediaReady = true;
+  state.hasWebRTC = true;
   el.callMjpeg.src = '';
   el.callMjpeg.classList.add('hidden');
   el.callVideo.srcObject = stream;
   el.callVideo.muted     = state.speakerMuted;
   el.callVideo.classList.remove('hidden');
   el.callNoVideo.classList.add('hidden');
+  
+  // Clear the error event since we have a successful WebRTC connection
+  el.callMjpeg.onerror = null;
   
   // Enable mic button for WebRTC (has audio)
   document.getElementById('btn-mute').disabled = false;
@@ -457,7 +462,8 @@ function endCall() {
   el.callVideo.srcObject = null;
   el.callMjpeg.src       = '';
 
-  // Reset mic icon
+  // Reset state
+  state.hasWebRTC = false;
   state.muted = false;
   el.iconMic.classList.remove('hidden');
   el.iconMicOff.classList.add('hidden');
@@ -468,8 +474,12 @@ function endCall() {
 
 el.callMjpeg.addEventListener('error', () => {
   const entity = state.pendingCamera;
-  if (entity && !state.snapshotTimer) {
-    console.warn('Image render failed, switching to snapshot mode');
+  // Only start snapshot fallback if:
+  // 1. We have a camera entity
+  // 2. We're not already in snapshot mode (no timer)
+  // 3. We don't have an active WebRTC connection
+  if (entity && !state.snapshotTimer && !state.hasWebRTC) {
+    console.warn('⚠️ Image render failed, switching to snapshot mode');
     startSnapshotFallback(entity);
   }
 });
