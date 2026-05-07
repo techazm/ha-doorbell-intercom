@@ -24,6 +24,7 @@ const state = {
   config:           null,
   audioCtx:         null,
   ringTimer:        null,
+  haWebRtcUnsupported: false,
 };
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
@@ -147,6 +148,9 @@ function handleMessage(msg) {
       break;
 
     case 'webrtc_error':
+      if (/Unknown command|unsupported/i.test(msg.error || '')) {
+        state.haWebRtcUnsupported = true;
+      }
       console.warn('WebRTC relay failed, falling back to MJPEG:', msg.error);
       startMjpegFallback();
       break;
@@ -210,7 +214,12 @@ async function answerCall() {
   if (go2rtc && state.config?.go2rtc_url) {
     await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
   } else if (camera) {
-    await startHAWebRTC(camera);
+    if (state.haWebRtcUnsupported) {
+      startMjpegFallback();
+      el.callStatusTxt.textContent = 'Live (video only)';
+    } else {
+      await startHAWebRTC(camera);
+    }
   } else {
     el.callStatusTxt.textContent = 'No camera configured';
   }
@@ -453,7 +462,9 @@ async function openDoorbellFromList(index) {
     // Start with a universal stream path so users see video instantly.
     startMjpegFallback();
     // Upgrade to WebRTC when available for lower latency and two-way audio.
-    await startHAWebRTC(state.pendingCamera);
+    if (!state.haWebRtcUnsupported) {
+      await startHAWebRTC(state.pendingCamera);
+    }
   } else {
     el.callStatusTxt.textContent = 'No camera configured';
   }

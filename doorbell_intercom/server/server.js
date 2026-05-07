@@ -129,6 +129,7 @@ async function callHaService(domain, service, data) {
 let haWs = null;
 let haMsgId = 1;
 const haPending = new Map(); // id → { resolve, reject, timer }
+let haWebRtcSupported = true;
 
 function connectToHA() {
   console.log('Connecting to HA WebSocket...');
@@ -275,6 +276,14 @@ wss.on('connection', (ws) => {
 
       // ── WebRTC signaling relay: browser ↔ HA ──────────────────────────────
       case 'webrtc_offer': {
+        if (!haWebRtcSupported) {
+          ws.send(JSON.stringify({
+            type: 'webrtc_error',
+            error: 'HA WebRTC unsupported',
+            session_id: msg.session_id,
+          }));
+          break;
+        }
         try {
           const result = await haSend({
             type: 'camera/web_rtc_offer',
@@ -288,6 +297,10 @@ wss.on('connection', (ws) => {
             session_id: msg.session_id,
           }));
         } catch (e) {
+          if (/Unknown command/i.test(e.message || '')) {
+            haWebRtcSupported = false;
+            console.warn('HA WebRTC commands not supported on this HA version; using MJPEG fallback only.');
+          }
           console.error('WebRTC relay failed:', e.message);
           ws.send(JSON.stringify({
             type: 'webrtc_error',
@@ -300,6 +313,7 @@ wss.on('connection', (ws) => {
 
       // Trickle ICE candidate relay
       case 'webrtc_candidate': {
+        if (!haWebRtcSupported) break;
         try {
           await haSend({
             type: 'camera/web_rtc_candidate',
