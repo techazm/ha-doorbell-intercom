@@ -255,14 +255,25 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     await pc.setLocalDescription(offer);
     await waitForIceGathering(pc);
 
-    console.log('📤 Sending SDP offer to go2rtc...');
-    const resp = await fetch(
-      `${go2rtcUrl}/api/webrtc?src=${encodeURIComponent(streamName)}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp }
-    );
-    if (!resp.ok) throw new Error(`go2rtc HTTP ${resp.status}: ${resp.statusText}`);
+    const webrtcUrl = `${go2rtcUrl.replace(/\/+$/, '')}/api/webrtc?src=${encodeURIComponent(streamName)}`;
+    console.log('📤 POST to:', webrtcUrl);
+    
+    const resp = await fetch(webrtcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/sdp' },
+      body: pc.localDescription.sdp
+    });
+    
+    console.log('📥 go2rtc response:', resp.status, resp.statusText);
+    
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`go2rtc HTTP ${resp.status}: ${text.substring(0, 100)}`);
+    }
 
     const sdp = await resp.text();
+    if (!sdp || sdp.length < 10) throw new Error('Empty SDP response from go2rtc');
+    
     await pc.setRemoteDescription({ type: 'answer', sdp });
     console.log('✅ go2rtc WebRTC connected!');
     el.callStatusTxt.textContent = 'Live';
@@ -369,11 +380,17 @@ function buildPeerConnection() {
 
 async function attachMicrophone(pc) {
   try {
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      console.warn('⚠️ getUserMedia not available (ingress context)');
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+      return;
+    }
     state.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     state.localStream.getAudioTracks().forEach(t => pc.addTrack(t, state.localStream));
+    console.log('🎤 Microphone attached');
   } catch (e) {
     // Microphone denied or unavailable — video-only call
-    console.warn('Microphone unavailable:', e.message);
+    console.warn('⚠️ Microphone unavailable:', e.message);
     pc.addTransceiver('audio', { direction: 'recvonly' });
   }
 }
