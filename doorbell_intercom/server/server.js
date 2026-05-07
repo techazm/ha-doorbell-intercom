@@ -57,6 +57,7 @@ app.get('/api/config', (_req, res) => {
       go2rtc_stream: d.go2rtc_stream || null,
       speaker_entity: d.speaker_entity || null,
     })),
+    ha_webrtc_supported: false,
     go2rtc_url: cfg.go2rtc_url || '',
     ring_timeout: cfg.ring_timeout || 60,
   });
@@ -129,7 +130,7 @@ async function callHaService(domain, service, data) {
 let haWs = null;
 let haMsgId = 1;
 const haPending = new Map(); // id → { resolve, reject, timer }
-let haWebRtcSupported = true;
+let haWebRtcSupported = false;
 
 function connectToHA() {
   console.log('Connecting to HA WebSocket...');

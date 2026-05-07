@@ -24,7 +24,7 @@ const state = {
   config:           null,
   audioCtx:         null,
   ringTimer:        null,
-  haWebRtcUnsupported: false,
+  haWebRtcUnsupported: true,
   snapshotTimer:    null,
 };
 
@@ -427,6 +427,7 @@ async function loadConfig() {
   try {
     const resp    = await fetch(`${apiBase}/api/config`);
     state.config  = await resp.json();
+    state.haWebRtcUnsupported = state.config?.ha_webrtc_supported === false;
     renderDoorbellList();
   } catch (e) {
     console.error('Failed to load config:', e.message);
