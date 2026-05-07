@@ -529,12 +529,20 @@ async function openDoorbellFromList(index) {
   el.callNoVideo.classList.remove('hidden');
   showScreen('call');
 
-  if (state.pendingCamera) {
-    // Start with a universal stream path so users see video instantly.
-    startMjpegFallback();
-    // Upgrade to WebRTC when available for lower latency and two-way audio.
-    if (!state.haWebRtcUnsupported) {
-      await startHAWebRTC(state.pendingCamera);
+  const go2rtc   = state.pendingGo2rtc;
+  const camera   = state.pendingCamera;
+
+  if (go2rtc && state.config?.go2rtc_url) {
+    // Prioritize go2rtc: direct WebRTC connection (two-way audio)
+    await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
+  } else if (camera) {
+    if (state.haWebRtcUnsupported) {
+      // Fall back to snapshot if HA WebRTC unsupported
+      startSnapshotFallback(camera);
+      el.callStatusTxt.textContent = 'Live (snapshot mode)';
+    } else {
+      // Try HA WebRTC relay
+      await startHAWebRTC(camera);
     }
   } else {
     el.callStatusTxt.textContent = 'No camera configured';
