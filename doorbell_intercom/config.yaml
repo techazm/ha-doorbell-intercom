@@ -24,29 +24,11 @@ options:
   doorbells: []
   ring_timeout: 60
 schema:
-  go2rtc_url: 
-    type: str
-    description: "Optional. go2rtc URL for direct WebRTC streams (e.g., http://frigate:8554). Leave empty to use HA camera entities only."
+  go2rtc_url: str?
   doorbells:
-    type: list
-    items:
-      type: object
-      properties:
-        name:
-          type: str
-          description: "Display name for this doorbell"
-        doorbell_sensor:
-          type: str
-          description: "Binary sensor entity that triggers on doorbell ring"
-        camera_entity:
-          type: str
-          description: "HA camera entity (fallback if go2rtc_stream not available)"
-        go2rtc_stream:
-          type: str
-          description: "Optional. go2rtc stream name for direct WebRTC (e.g., 'doorbell'). Requires go2rtc_url to be configured."
-        speaker_entity:
-          type: str
-          description: "Optional. Speaker entity for TTS notifications"
-  ring_timeout:
-    type: int
-    description: "Ring notification timeout in seconds"
+    - name: str
+      doorbell_sensor: str
+      camera_entity: str?
+      go2rtc_stream: str?
+      speaker_entity: str?
+  ring_timeout: int
