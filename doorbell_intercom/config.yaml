@@ -1,5 +1,5 @@
 name: Doorbell Intercom
-version: "1.0.7"
+version: "1.0.8"
 slug: doorbell_intercom
 description: >-
   Universal video intercom for any Home Assistant connected doorbell.
@@ -17,6 +17,8 @@ ingress_port: 8765
 panel_icon: mdi:doorbell-video
 panel_title: Doorbell Intercom
 homeassistant: "2023.0.0"
+homeassistant_api: true
+hassio_api: true
 options:
   doorbells: []
   go2rtc_url: ""
