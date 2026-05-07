@@ -313,14 +313,8 @@ async function applyWebRTCAnswer(msg) {
 function startMjpegFallback() {
   const entity = state.pendingCamera;
   if (!entity) { el.callStatusTxt.textContent = 'No video available'; return; }
-  console.log('Using MJPEG stream');
-  stopSnapshotFallback();
-  mediaReady = false;
-  el.callVideo.classList.add('hidden');
-  el.callNoVideo.classList.remove('hidden');
-  el.callMjpeg.classList.add('hidden');
-  el.callMjpeg.src = `${apiBase}/api/stream/${entity}?t=${Date.now()}`;
-  el.callStatusTxt.textContent = 'Live (video only)';
+  console.log('Using snapshot mode');
+  startSnapshotFallback(entity);
 }
 
 function startSnapshotFallback(entity) {
@@ -423,7 +417,7 @@ function endCall() {
 el.callMjpeg.addEventListener('error', () => {
   const entity = state.pendingCamera;
   if (entity && !state.snapshotTimer) {
-    console.warn('MJPEG failed to render, switching to snapshot mode');
+    console.warn('Image render failed, switching to snapshot mode');
     startSnapshotFallback(entity);
   }
 });
