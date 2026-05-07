@@ -1,0 +1,31 @@
+name: Doorbell Intercom
+version: "1.0.0"
+slug: doorbell_intercom
+description: >-
+  Universal video intercom for any Home Assistant connected doorbell.
+  Live video, two-way audio, instant push notifications — works with Reolink,
+  Frigate, UniFi Protect, and any camera entity in HA.
+url: https://github.com/yourusername/ha-doorbell-intercom
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+ingress: true
+ingress_port: 8765
+panel_icon: mdi:doorbell-video
+panel_title: Doorbell Intercom
+homeassistant: "2023.0.0"
+options:
+  doorbells: []
+  go2rtc_url: ""
+  ring_timeout: 60
+schema:
+  doorbells:
+    - name: str
+      doorbell_sensor: str
+      camera_entity: str
+      go2rtc_stream: str?
+      speaker_entity: str?
+  go2rtc_url: str
+  ring_timeout: int

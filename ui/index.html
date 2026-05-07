@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Doorbell Intercom</title>
+  <!-- Ingress base path injected by the server at runtime -->
+  <script>window.INGRESS_PATH = '__INGRESS_PATH__';</script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ── Idle screen ─────────────────────────────────────────────────── -->
+  <div id="screen-idle" class="screen active">
+    <div class="idle-header">
+      <svg class="idle-icon" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M10 21h4a2 2 0 0 1-4 0M12 3a7 7 0 0 1 7 7c0 4-2.5 6.5-2.5 6.5h-9S5 14 5 10a7 7 0 0 1 7-7z"/>
+      </svg>
+      <h1>Doorbell Intercom</h1>
+    </div>
+
+    <div id="doorbell-list" class="doorbell-list">
+      <p class="empty-msg">Loading…</p>
+    </div>
+
+    <p id="conn-status" class="conn-status disconnected">Connecting…</p>
+  </div>
+
+  <!-- ── Ringing screen ──────────────────────────────────────────────── -->
+  <div id="screen-ringing" class="screen">
+    <div class="ring-bg"></div>
+    <div class="ring-content">
+
+      <div class="ring-pulse-wrap">
+        <div class="ring-pulse"></div>
+        <svg class="ring-bell-icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M10 21h4a2 2 0 0 1-4 0M12 3a7 7 0 0 1 7 7c0 4-2.5 6.5-2.5 6.5h-9S5 14 5 10a7 7 0 0 1 7-7z"/>
+        </svg>
+      </div>
+
+      <div id="ring-snapshot" class="ring-snapshot">
+        <img id="ring-img" src="" alt="" draggable="false">
+      </div>
+
+      <h2 id="ring-name" class="ring-name">Front Door</h2>
+      <p class="ring-subtitle">Someone is at the door</p>
+
+      <div class="ring-actions">
+        <div class="ring-btn-wrap">
+          <button id="btn-decline" class="btn-circle btn-red" aria-label="Decline">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20.84 22.73 22.73 20.84 3.16 1.27 1.27 3.16l4.5 4.5C4.63 8.42 4 9.64 4 11c0 1.5.66 2.87 1.71 3.82L12 21.1l.07-.07 3.73 3.73 5.04-2.03zM12 2C8.53 2 5.5 3.55 3.47 6l1.5 1.5C6.54 5.64 9.1 4 12 4c5.52 0 10 4.48 10 10 0 2.9-1.64 5.46-4 6.84"/>
+            </svg>
+          </button>
+          <span class="btn-label">Decline</span>
+        </div>
+
+        <div class="ring-btn-wrap">
+          <button id="btn-answer" class="btn-circle btn-green" aria-label="Answer">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02z"/>
+            </svg>
+          </button>
+          <span class="btn-label">Answer</span>
+        </div>
+      </div>
+
+      <button id="btn-dismiss" class="btn-text">Dismiss</button>
+    </div>
+  </div>
+
+  <!-- ── In-call screen ──────────────────────────────────────────────── -->
+  <div id="screen-call" class="screen">
+    <div class="call-wrap">
+
+      <!-- Video layer -->
+      <video id="call-video" class="call-video" autoplay playsinline></video>
+      <img  id="call-mjpeg" class="call-video hidden" alt="Camera stream" draggable="false">
+      <div  id="call-no-video" class="call-no-video hidden">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11z"/>
+        </svg>
+        <p>Connecting video…</p>
+      </div>
+
+      <!-- Top bar -->
+      <div class="call-top-bar">
+        <div class="call-status-pill">
+          <span class="call-dot"></span>
+          <span id="call-status-text">Connecting…</span>
+        </div>
+        <span id="call-doorbell-name" class="call-doorbell-name"></span>
+      </div>
+
+      <!-- Bottom controls -->
+      <div class="call-controls">
+        <div class="ctrl-btn-wrap">
+          <button id="btn-mute" class="btn-ctrl" aria-label="Mute microphone">
+            <svg id="icon-mic" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3m7 9c0 3.53-2.61 6.44-6 6.93V21h-2v-3.07c-3.39-.49-6-3.4-6-6.93h2a5 5 0 0 0 10 0z"/>
+            </svg>
+            <svg id="icon-mic-off" class="hidden" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 11c0 .56-.08 1.1-.22 1.61L17.2 11l.8-.79V5a3 3 0 0 0-6 0v.18l-2-2V5a5 5 0 0 1 10 0v6m-7 10v-3.07c-3.39-.49-6-3.4-6-6.93h2a5 5 0 0 0 8.68 3.47l1.42 1.42A6.97 6.97 0 0 1 13 17.93V21zm-7.27-3.19-1.42-1.42 18-18 1.41 1.41z"/>
+            </svg>
+          </button>
+          <span class="ctrl-label">Mute</span>
+        </div>
+
+        <div class="ctrl-btn-wrap">
+          <button id="btn-hangup" class="btn-circle btn-red" aria-label="Hang up">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20.84 22.73 22.73 20.84 3.16 1.27 1.27 3.16l4.5 4.5C4.63 8.42 4 9.64 4 11c0 1.5.66 2.87 1.71 3.82L12 21.1l.07-.07 3.73 3.73 5.04-2.03zM12 2C8.53 2 5.5 3.55 3.47 6l1.5 1.5C6.54 5.64 9.1 4 12 4c5.52 0 10 4.48 10 10 0 2.9-1.64 5.46-4 6.84"/>
+            </svg>
+          </button>
+          <span class="ctrl-label">Hang up</span>
+        </div>
+
+        <div class="ctrl-btn-wrap">
+          <button id="btn-speaker" class="btn-ctrl active" aria-label="Speaker">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 9v6h4l5 5V4L7 9zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02M14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77"/>
+            </svg>
+          </button>
+          <span class="ctrl-label">Speaker</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,395 @@
+/* ── Reset & base ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0d0d0f;
+  --surface:   #1a1a1e;
+  --surface2:  #26262c;
+  --border:    #333340;
+  --text:      #f0f0f5;
+  --text-dim:  #8888a0;
+  --green:     #22c55e;
+  --red:       #ef4444;
+  --blue:      #3b82f6;
+  --radius:    14px;
+  --safe-b:    env(safe-area-inset-bottom, 0px);
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
+}
+
+/* ── Screens ───────────────────────────────────────────────────────────────── */
+.screen {
+  position: fixed;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+}
+.screen.active { display: flex; }
+
+/* ── Idle screen ───────────────────────────────────────────────────────────── */
+.idle-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px 24px;
+  text-align: center;
+}
+
+.idle-icon {
+  width: 56px;
+  height: 56px;
+  color: var(--blue);
+}
+
+.idle-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.doorbell-list {
+  width: 100%;
+  max-width: 480px;
+  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.empty-msg {
+  text-align: center;
+  color: var(--text-dim);
+  padding: 24px;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.doorbell-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.doorbell-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--blue);
+}
+.doorbell-card-icon svg { width: 22px; height: 22px; }
+
+.doorbell-card-info { flex: 1; min-width: 0; }
+.doorbell-card-name { font-weight: 600; font-size: 1rem; display: block; }
+.doorbell-card-entity {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.doorbell-card-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--green);
+  background: rgba(34, 197, 94, 0.12);
+  border-radius: 20px;
+  padding: 3px 10px;
+  flex-shrink: 0;
+}
+
+.conn-status {
+  font-size: 0.78rem;
+  padding: 12px 0 calc(12px + var(--safe-b));
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+.conn-status.connected    { color: var(--green); }
+.conn-status.disconnected { color: var(--text-dim); }
+
+/* ── Ringing screen ────────────────────────────────────────────────────────── */
+.ring-bg {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 30%, #1a1040 0%, var(--bg) 70%);
+}
+
+.ring-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 100%;
+  flex: 1;
+  padding: 32px 24px calc(32px + var(--safe-b));
+  text-align: center;
+}
+
+/* Pulse animation */
+.ring-pulse-wrap {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.ring-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.15);
+  animation: pulse 2s ease-out infinite;
+}
+.ring-pulse::before {
+  content: '';
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.07);
+  animation: pulse 2s ease-out 0.4s infinite;
+}
+
+@keyframes pulse {
+  0%   { transform: scale(0.9); opacity: 1; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+.ring-bell-icon {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  color: var(--blue);
+  animation: bellShake 2s ease-in-out infinite;
+}
+
+@keyframes bellShake {
+  0%, 100% { transform: rotate(0deg); }
+  10%       { transform: rotate(-12deg); }
+  20%       { transform: rotate(12deg); }
+  30%       { transform: rotate(-8deg); }
+  40%       { transform: rotate(8deg); }
+  50%       { transform: rotate(0deg); }
+}
+
+.ring-snapshot {
+  width: 180px;
+  height: 120px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid var(--border);
+  margin-bottom: 20px;
+  background: var(--surface);
+}
+.ring-snapshot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ring-name {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 4px;
+}
+
+.ring-subtitle {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  margin-bottom: 40px;
+}
+
+/* Answer / Decline buttons */
+.ring-actions {
+  display: flex;
+  gap: 56px;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.ring-btn-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn-label, .ctrl-label {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.btn-circle {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s, opacity 0.12s;
+}
+.btn-circle:active { transform: scale(0.92); opacity: 0.85; }
+.btn-circle svg { width: 32px; height: 32px; }
+
+.btn-green { background: var(--green); color: #fff; }
+.btn-red   { background: var(--red);   color: #fff; }
+
+.btn-text {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 8px 16px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── In-call screen ────────────────────────────────────────────────────────── */
+.call-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+
+.call-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.call-video.hidden { display: none; }
+
+.call-no-video {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: var(--text-dim);
+  background: #0a0a0a;
+}
+.call-no-video.hidden { display: none; }
+.call-no-video svg { width: 64px; height: 64px; opacity: 0.3; }
+.call-no-video p  { font-size: 0.9rem; }
+
+/* Top status bar */
+.call-top-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%);
+}
+
+.call-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(0,0,0,0.5);
+  border-radius: 20px;
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.call-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  animation: blink 1.2s ease-in-out infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.2; }
+}
+
+.call-doorbell-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.8);
+}
+
+/* Bottom controls */
+.call-controls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 24px 32px calc(24px + var(--safe-b));
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%);
+}
+
+.ctrl-btn-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-ctrl {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.btn-ctrl:active { transform: scale(0.9); }
+.btn-ctrl svg { width: 24px; height: 24px; }
+.btn-ctrl.active  { background: rgba(255,255,255,0.9); color: var(--bg); border-color: transparent; }
+.btn-ctrl.muted   { background: var(--red); border-color: transparent; }
+
+/* ── Utility ───────────────────────────────────────────────────────────────── */
+.hidden { display: none !important; }

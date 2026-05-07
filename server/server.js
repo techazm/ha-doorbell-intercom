@@ -1,0 +1,346 @@
+'use strict';
+
+const express = require('express');
+const WebSocket = require('ws');
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const fetch = require('node-fetch');
+
+// ── Configuration ─────────────────────────────────────────────────────────────
+
+const PORT = parseInt(process.env.PORT || '8765', 10);
+const HA_TOKEN = process.env.SUPERVISOR_TOKEN || '';
+const HA_API = 'http://supervisor/core/api';
+const HA_WS_URL = 'ws://supervisor/core/websocket';
+
+let cfg = { doorbells: [], go2rtc_url: '', ring_timeout: 60 };
+try {
+  cfg = { ...cfg, ...JSON.parse(process.env.ADDON_CONFIG || '{}') };
+} catch (e) {
+  console.error('Failed to parse ADDON_CONFIG:', e.message);
+}
+
+const indexHtml = fs.readFileSync(path.join(__dirname, 'ui', 'index.html'), 'utf8');
+
+// ── HTTP + WebSocket server ───────────────────────────────────────────────────
+
+const app = express();
+const httpServer = http.createServer(app);
+const wss = new WebSocket.Server({ noServer: true });
+
+app.use(express.json());
+// Static assets (style.css, app.js) — serve without index.html so we can inject
+app.use(express.static(path.join(__dirname, 'ui'), { index: false }));
+
+// Serve index.html with ingress base path injected
+app.get('/', (req, res) => {
+  const ingressPath = req.headers['x-ingress-path'] || '';
+  const html = indexHtml.replace('__INGRESS_PATH__', ingressPath);
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+});
+
+// Config endpoint for the UI
+app.get('/api/config', (_req, res) => {
+  res.json({
+    doorbells: cfg.doorbells.map(d => ({
+      name: d.name,
+      camera_entity: d.camera_entity,
+      go2rtc_stream: d.go2rtc_stream || null,
+      speaker_entity: d.speaker_entity || null,
+    })),
+    go2rtc_url: cfg.go2rtc_url || '',
+    ring_timeout: cfg.ring_timeout || 60,
+  });
+});
+
+// Proxy camera snapshot (avoids exposing HA long-lived token to the browser)
+app.get('/api/snapshot/:entityId', async (req, res) => {
+  try {
+    const resp = await haFetch(`/camera_proxy/${req.params.entityId}`);
+    if (!resp.ok) return res.status(resp.status).end();
+    res.set('Content-Type', resp.headers.get('content-type') || 'image/jpeg');
+    res.set('Cache-Control', 'no-cache');
+    resp.body.pipe(res);
+  } catch (e) {
+    console.error('Snapshot proxy error:', e.message);
+    res.status(500).end();
+  }
+});
+
+// Proxy MJPEG stream — fallback when WebRTC is unavailable
+app.get('/api/stream/:entityId', async (req, res) => {
+  try {
+    const resp = await haFetch(`/camera_proxy_stream/${req.params.entityId}`);
+    if (!resp.ok) return res.status(resp.status).end();
+    res.set('Content-Type', resp.headers.get('content-type') || 'multipart/x-mixed-replace');
+    res.set('Cache-Control', 'no-cache');
+    resp.body.pipe(res);
+    req.on('close', () => resp.body.destroy());
+  } catch (e) {
+    console.error('Stream proxy error:', e.message);
+    res.status(500).end();
+  }
+});
+
+// WebSocket upgrade — handles any path so ingress prefix stripping is irrelevant
+httpServer.on('upgrade', (req, socket, head) => {
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit('connection', ws, req);
+  });
+});
+
+// ── HA API helpers ────────────────────────────────────────────────────────────
+
+function haFetch(urlPath, opts = {}) {
+  return fetch(`${HA_API}${urlPath}`, {
+    ...opts,
+    headers: {
+      Authorization: `Bearer ${HA_TOKEN}`,
+      ...opts.headers,
+    },
+  });
+}
+
+async function callHaService(domain, service, data) {
+  try {
+    const resp = await haFetch(`/services/${domain}/${service}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return resp.ok;
+  } catch (e) {
+    console.error(`Service call ${domain}.${service} failed:`, e.message);
+    return false;
+  }
+}
+
+// ── HA WebSocket connection ───────────────────────────────────────────────────
+
+let haWs = null;
+let haMsgId = 1;
+const haPending = new Map(); // id → { resolve, reject, timer }
+
+function connectToHA() {
+  console.log('Connecting to HA WebSocket...');
+  haWs = new WebSocket(HA_WS_URL);
+
+  haWs.on('open', () => console.log('HA WebSocket connected'));
+
+  haWs.on('message', (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
+
+    switch (msg.type) {
+      case 'auth_required':
+        haWs.send(JSON.stringify({ type: 'auth', access_token: HA_TOKEN }));
+        break;
+
+      case 'auth_ok':
+        console.log('Authenticated with HA — subscribing to events');
+        haSubscribeEvents();
+        break;
+
+      case 'auth_invalid':
+        console.error('HA authentication failed. Check SUPERVISOR_TOKEN.');
+        break;
+
+      case 'result':
+        if (haPending.has(msg.id)) {
+          const { resolve, reject, timer } = haPending.get(msg.id);
+          clearTimeout(timer);
+          haPending.delete(msg.id);
+          if (msg.success) resolve(msg.result);
+          else reject(new Error(msg.error?.message || 'HA error'));
+        }
+        break;
+
+      case 'event':
+        if (msg.event?.event_type === 'state_changed') {
+          handleStateChanged(msg.event.data);
+        }
+        break;
+    }
+  });
+
+  haWs.on('close', () => {
+    console.log('HA WebSocket closed — reconnecting in 5s');
+    for (const { reject, timer } of haPending.values()) {
+      clearTimeout(timer);
+      reject(new Error('HA WebSocket closed'));
+    }
+    haPending.clear();
+    setTimeout(connectToHA, 5000);
+  });
+
+  haWs.on('error', (err) => console.error('HA WebSocket error:', err.message));
+}
+
+// Send a message to HA and return a Promise for the result
+function haSend(payload) {
+  return new Promise((resolve, reject) => {
+    const id = haMsgId++;
+    const timer = setTimeout(() => {
+      haPending.delete(id);
+      reject(new Error('HA request timed out'));
+    }, 10000);
+    haPending.set(id, { resolve, reject, timer });
+    haWs.send(JSON.stringify({ ...payload, id }));
+  });
+}
+
+function haSubscribeEvents() {
+  haWs.send(JSON.stringify({
+    id: haMsgId++,
+    type: 'subscribe_events',
+    event_type: 'state_changed',
+  }));
+}
+
+function handleStateChanged({ entity_id, new_state, old_state }) {
+  // Only trigger on rising edge (off → on)
+  if (new_state?.state !== 'on' || old_state?.state === 'on') return;
+
+  const doorbell = (cfg.doorbells || []).find(d => d.doorbell_sensor === entity_id);
+  if (doorbell) {
+    console.log(`[${doorbell.name}] Doorbell pressed`);
+    onRing(doorbell);
+  }
+}
+
+// ── Call state ────────────────────────────────────────────────────────────────
+
+const ringTimers = new Map();
+
+function onRing(doorbell) {
+  // Reset any existing ring timer for this doorbell
+  if (ringTimers.has(doorbell.name)) clearTimeout(ringTimers.get(doorbell.name));
+
+  broadcast({
+    type: 'doorbell_ring',
+    doorbell: doorbell.name,
+    camera_entity: doorbell.camera_entity,
+    go2rtc_stream: doorbell.go2rtc_stream || null,
+    speaker_entity: doorbell.speaker_entity || null,
+  });
+
+  const timeoutMs = (cfg.ring_timeout || 60) * 1000;
+  ringTimers.set(doorbell.name, setTimeout(() => {
+    ringTimers.delete(doorbell.name);
+    broadcast({ type: 'doorbell_timeout', doorbell: doorbell.name });
+  }, timeoutMs));
+}
+
+function clearRingTimer(doorbellName) {
+  if (ringTimers.has(doorbellName)) {
+    clearTimeout(ringTimers.get(doorbellName));
+    ringTimers.delete(doorbellName);
+  }
+}
+
+// ── Browser WebSocket clients ─────────────────────────────────────────────────
+
+const clients = new Set();
+
+function broadcast(msg) {
+  const data = JSON.stringify(msg);
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(data);
+  }
+}
+
+wss.on('connection', (ws) => {
+  clients.add(ws);
+
+  // Send current config snapshot on connect
+  ws.send(JSON.stringify({
+    type: 'hello',
+    doorbells: (cfg.doorbells || []).map(d => d.name),
+  }));
+
+  ws.on('message', async (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
+
+    switch (msg.type) {
+
+      // ── WebRTC signaling relay: browser ↔ HA ──────────────────────────────
+      case 'webrtc_offer': {
+        try {
+          const result = await haSend({
+            type: 'camera/web_rtc_offer',
+            entity_id: msg.entity_id,
+            offer: msg.offer,
+          });
+          ws.send(JSON.stringify({
+            type: 'webrtc_answer',
+            answer: result.answer,
+            candidates: result.candidates || [],
+            session_id: msg.session_id,
+          }));
+        } catch (e) {
+          console.error('WebRTC relay failed:', e.message);
+          ws.send(JSON.stringify({
+            type: 'webrtc_error',
+            error: e.message,
+            session_id: msg.session_id,
+          }));
+        }
+        break;
+      }
+
+      // Trickle ICE candidate relay
+      case 'webrtc_candidate': {
+        try {
+          await haSend({
+            type: 'camera/web_rtc_candidate',
+            entity_id: msg.entity_id,
+            session_id: msg.session_id,
+            candidate: msg.candidate,
+          });
+        } catch { /* non-fatal */ }
+        break;
+      }
+
+      // ── Call lifecycle ─────────────────────────────────────────────────────
+      case 'call_answered': {
+        clearRingTimer(msg.doorbell);
+        broadcast({ type: 'call_answered', doorbell: msg.doorbell });
+        break;
+      }
+
+      case 'call_ended': {
+        clearRingTimer(msg.doorbell);
+        broadcast({ type: 'call_ended', doorbell: msg.doorbell });
+        break;
+      }
+
+      // ── Speak through speaker entity (TTS fallback) ────────────────────────
+      case 'speak': {
+        if (msg.speaker_entity && msg.message) {
+          await callHaService('tts', 'speak', {
+            entity_id: 'tts.piper',
+            media_player_entity_id: msg.speaker_entity,
+            message: msg.message,
+          });
+        }
+        break;
+      }
+    }
+  });
+
+  ws.on('close', () => clients.delete(ws));
+  ws.on('error', (err) => console.error('Browser WS error:', err.message));
+});
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+
+connectToHA();
+
+httpServer.listen(PORT, '0.0.0.0', () => {
+  const names = (cfg.doorbells || []).map(d => d.name).join(', ') || 'none configured';
+  console.log(`Doorbell Intercom listening on port ${PORT}`);
+  console.log(`Doorbells: ${names}`);
+});
