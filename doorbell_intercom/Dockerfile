@@ -7,7 +7,7 @@ RUN apk add --no-cache nodejs npm
 WORKDIR /app
 
 # Install Node dependencies first (layer cached unless package.json changes)
-COPY server/package.json ./
+COPY server/package.json server/package-lock.json ./
 RUN npm ci --omit=dev
 
 # Copy application code
