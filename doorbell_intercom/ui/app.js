@@ -450,6 +450,9 @@ async function openDoorbellFromList(index) {
   showScreen('call');
 
   if (state.pendingCamera) {
+    // Start with a universal stream path so users see video instantly.
+    startMjpegFallback();
+    // Upgrade to WebRTC when available for lower latency and two-way audio.
     await startHAWebRTC(state.pendingCamera);
   } else {
     el.callStatusTxt.textContent = 'No camera configured';
