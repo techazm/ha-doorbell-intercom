@@ -24,6 +24,15 @@ try {
     cfg = { ...cfg, ...JSON.parse(rawOptions) };
     console.log('Loaded config from /data/options.json');
   }
+  
+  // Auto-convert RTSP URLs to go2rtc HTTP API URLs
+  if (cfg.go2rtc_url && cfg.go2rtc_url.startsWith('rtsp://')) {
+    const url = new URL(cfg.go2rtc_url);
+    const host = url.hostname;
+    const port = url.port || 8554;
+    cfg.go2rtc_url = `http://${host}:1984`;
+    console.log(`[CONFIG] Auto-converted RTSP URL to HTTP API URL: ${cfg.go2rtc_url}`);
+  }
 } catch (e) {
   console.error('Failed to load add-on config:', e.message);
 }
