@@ -392,7 +392,7 @@ async function applyWebRTCAnswer(msg) {
   }
 }
 
-// ── go2rtc MJPEG stream (video + audio, low latency) ──────────────────────────
+// ── go2rtc MJPEG stream with audio fallback chain ────────────────────────────
 function startGo2rtcMjpeg(streamName) {
   if (!streamName) {
     console.error('❌ No stream name for MJPEG');
@@ -407,38 +407,67 @@ function startGo2rtcMjpeg(streamName) {
   el.callNoVideo.classList.add('hidden');
   el.callMjpeg.classList.add('hidden');
   
-  // IMPORTANT: For streaming URLs, muted MUST be false to hear audio
-  // We will NOT mute based on speakerMuted here - that only applies to received audio
-  const url = `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}?format=webm`;
-  console.log('🎬 Starting MJPEG stream:', url);
-  
   el.callVideo.muted = false;  // CRITICAL: must be false for audio in streaming
-  el.callVideo.src = url;
   el.callStatusTxt.textContent = 'Live (streaming)';
   
-  // Force play with explicit error handling
-  const playPromise = el.callVideo.play();
-  if (playPromise !== undefined) {
-    playPromise
-      .then(() => {
-        mediaReady = true;
-        console.log('✅ Stream playing');
-        // Check if audio tracks are present after a short delay
-        setTimeout(() => {
-          const audioTracks = el.callVideo.audioTracks ? el.callVideo.audioTracks.length : 0;
-          console.log('🔊 Audio tracks detected:', audioTracks);
-        }, 500);
-      })
-      .catch(e => {
-        console.error('⚠️ Play failed:', e.message);
-        el.callStatusTxt.textContent = 'Stream error';
-      });
+  // Try formats in order of likelihood to have audio
+  // 1. MP4 (audio+video)
+  // 2. MKV (audio+video) 
+  // 3. WebM (audio+video)
+  // 4. MJPEG (video-only fallback)
+  const formats = ['mp4', 'mkv', 'webm', 'mjpeg'];
+  tryStreamFormat(streamName, formats, 0);
+}
+
+function tryStreamFormat(streamName, formats, index) {
+  if (index >= formats.length) {
+    console.error('❌ All stream formats exhausted');
+    el.callStatusTxt.textContent = 'No stream available';
+    return;
   }
   
-  el.callVideo.onerror = (e) => {
-    console.error('❌ Stream error:', e);
-    el.callStatusTxt.textContent = 'Stream error';
+  const format = formats[index];
+  const url = `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}?format=${format}`;
+  console.log(`🎬 Trying format ${index + 1}/${formats.length}: ${format}`);
+  
+  el.callVideo.src = url;
+  
+  // Set up one-time handlers for this attempt
+  const onCanPlay = () => {
+    console.log(`✅ Format ${format} working! Video can play`);
+    mediaReady = true;
+    el.callVideo.removeEventListener('canplay', onCanPlay);
+    el.callVideo.removeEventListener('error', onError);
+    
+    // Check audio after a delay
+    setTimeout(() => {
+      const audioTracks = el.callVideo.audioTracks ? el.callVideo.audioTracks.length : 0;
+      console.log(`🔊 Format ${format} has ${audioTracks} audio track(s)`);
+      if (audioTracks > 0) {
+        el.callStatusTxt.textContent = `Live (${format.toUpperCase()} with audio)`;
+      } else {
+        el.callStatusTxt.textContent = `Live (${format.toUpperCase()})`;
+      }
+    }, 300);
   };
+  
+  const onError = () => {
+    console.warn(`⚠️ Format ${format} failed, trying next...`);
+    el.callVideo.removeEventListener('canplay', onCanPlay);
+    el.callVideo.removeEventListener('error', onError);
+    tryStreamFormat(streamName, formats, index + 1);
+  };
+  
+  el.callVideo.addEventListener('canplay', onCanPlay, { once: true });
+  el.callVideo.addEventListener('error', onError, { once: true });
+  
+  // Force play
+  const playPromise = el.callVideo.play();
+  if (playPromise !== undefined) {
+    playPromise.catch(e => {
+      console.warn(`⚠️ Play failed for ${format}:`, e.message);
+    });
+  }
 }
 
 function startSnapshotFallback(entity) {
