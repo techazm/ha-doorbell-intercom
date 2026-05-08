@@ -604,16 +604,19 @@ document.getElementById('btn-mute').addEventListener('click', () => {
 document.getElementById('btn-speaker').addEventListener('click', () => {
   state.speakerMuted = !state.speakerMuted;
   
-  // Only mute if using WebRTC (srcObject)
-  // For streaming URLs (MJPEG), keep unmuted to hear audio from the stream
+  // Mute/unmute WebRTC received audio only
   if (el.callVideo.srcObject) {
-    // WebRTC: mute/unmute the received stream
     el.callVideo.muted = state.speakerMuted;
     console.log('🔊 WebRTC audio toggled:', state.speakerMuted ? 'muted' : 'unmuted');
-  } else {
-    // Streaming URL: don't change mute property, but log the intent
-    console.log('🔊 Speaker button pressed (streaming mode - audio from remote stream)');
   }
+  
+  // Also mute fallback audio if present
+  const audioEl = document.getElementById('fallback-audio');
+  if (audioEl) {
+    audioEl.muted = state.speakerMuted;
+  }
+  
+  console.log('🔊 Speaker toggled:', state.speakerMuted ? 'muted' : 'unmuted');
   
   // Update button visual state
   const btn = document.getElementById('btn-speaker');
@@ -633,8 +636,15 @@ function endCall() {
 
   el.callVideo.srcObject = null;
   el.callVideo.src = '';
-  el.callVideo.muted = true;  // Restore to safe default
+  el.callVideo.muted = true;
   el.callMjpeg.src = '';
+  
+  // Stop fallback audio if present
+  const audioEl = document.getElementById('fallback-audio');
+  if (audioEl) {
+    audioEl.pause();
+    audioEl.src = '';
+  }
 
   // Reset state
   state.hasWebRTC = false;
