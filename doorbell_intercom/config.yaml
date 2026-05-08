@@ -1,5 +1,5 @@
 name: Doorbell Intercom
-version: "1.0.27"
+version: "1.0.28"
 slug: doorbell_intercom
 description: >-
   Universal video intercom for any Home Assistant connected doorbell.

@@ -247,9 +247,23 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     // Monitor connection state
     pc.onconnectionstatechange = () => {
       console.log('🔗 PC connection state:', pc.connectionState);
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        console.error('❌ WebRTC connection failed/disconnected, ICE state:', pc.iceConnectionState);
+      }
     };
     pc.oniceconnectionstatechange = () => {
       console.log('❄️ ICE connection state:', pc.iceConnectionState);
+      if (pc.iceConnectionState === 'failed') {
+        console.error('❌ ICE failed - checking ICE candidates...');
+      }
+    };
+    
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        console.log('🧊 ICE candidate:', e.candidate.candidate.substring(0, 60) + '...');
+      } else {
+        console.log('✅ ICE gathering complete');
+      }
     };
 
     await attachMicrophone(pc);
@@ -289,6 +303,14 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     await pc.setRemoteDescription({ type: 'answer', sdp });
     console.log('✅ go2rtc WebRTC connected!');
     el.callStatusTxt.textContent = 'Live';
+    
+    // Timeout fallback: if connection fails within 10 seconds, fall back to snapshot
+    setTimeout(() => {
+      if (pc.connectionState === 'failed' || pc.iceConnectionState === 'failed') {
+        console.warn('⏱️ WebRTC connection failed, falling back to snapshot');
+        startSnapshotFallback(state.pendingCamera);
+      }
+    }, 10000);
 
   } catch (e) {
     console.error('❌ go2rtc WebRTC failed:', e.message);
@@ -386,7 +408,12 @@ function stopSnapshotFallback() {
 // ── WebRTC helpers ────────────────────────────────────────────────────────────
 function buildPeerConnection() {
   return new RTCPeerConnection({
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+    ],
   });
 }
 
@@ -409,11 +436,24 @@ async function attachMicrophone(pc) {
 
 function waitForIceGathering(pc) {
   return new Promise((resolve) => {
-    if (pc.iceGatheringState === 'complete') { resolve(); return; }
-    const done = () => { if (pc.iceGatheringState === 'complete') { pc.removeEventListener('icegatheringstatechange', done); resolve(); } };
+    if (pc.iceGatheringState === 'complete') { 
+      resolve(); 
+      return; 
+    }
+    const done = () => { 
+      if (pc.iceGatheringState === 'complete') { 
+        pc.removeEventListener('icegatheringstatechange', done); 
+        console.log('✅ ICE gathering complete');
+        resolve(); 
+      } 
+    };
     pc.addEventListener('icegatheringstatechange', done);
-    // Safety timeout — some networks take time
-    setTimeout(resolve, 4000);
+    // Safety timeout — some networks take time (increased from 4 to 8 seconds)
+    setTimeout(() => {
+      pc.removeEventListener('icegatheringstatechange', done);
+      console.warn('⏱️ ICE gathering timeout (8s), proceeding anyway');
+      resolve();
+    }, 8000);
   });
 }
 
