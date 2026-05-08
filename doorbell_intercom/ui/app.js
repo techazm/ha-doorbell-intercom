@@ -429,27 +429,37 @@ function startGo2rtcMjpeg(streamName) {
   mediaReady = false;
   state.hasWebRTC = false;
   
-  el.callVideo.classList.add('hidden');
-  el.callNoVideo.classList.remove('hidden');
-  el.callMjpeg.classList.remove('hidden');
+  // Use video element for MJPEG streaming (not img - img is static only)
+  el.callVideo.classList.remove('hidden');
+  el.callNoVideo.classList.add('hidden');
+  el.callMjpeg.classList.add('hidden');
   
   // Use server proxy to get MJPEG with audio
   const url = `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}`;
-  console.log('🎬 Starting MJPEG stream (with audio):', url);
-  el.callMjpeg.src = url;
+  console.log('🎬 Starting MJPEG stream (with audio via video element):', url);
+  
+  el.callVideo.src = url;
+  el.callVideo.muted = state.speakerMuted;  // Apply speaker mute state
   el.callStatusTxt.textContent = 'Live (MJPEG with audio)';
   
-  // Handle errors
-  el.callMjpeg.onerror = () => {
-    console.error('❌ MJPEG stream failed');
-    el.callStatusTxt.textContent = 'Stream error';
-  };
+  // Force play
+  const playPromise = el.callVideo.play();
+  if (playPromise !== undefined) {
+    playPromise
+      .then(() => {
+        mediaReady = true;
+        console.log('📺 MJPEG stream playing with audio');
+      })
+      .catch(e => {
+        console.error('⚠️ MJPEG play failed:', e.message);
+        el.callStatusTxt.textContent = 'Stream error';
+      });
+  }
   
-  // Monitor when stream loads
-  el.callMjpeg.onload = () => {
-    mediaReady = true;
-    el.callNoVideo.classList.add('hidden');
-    console.log('✅ MJPEG stream loaded');
+  // Handle errors
+  el.callVideo.onerror = () => {
+    console.error('❌ MJPEG stream error');
+    el.callStatusTxt.textContent = 'Stream error';
   };
 }
 
