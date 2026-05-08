@@ -403,37 +403,40 @@ function startGo2rtcMjpeg(streamName) {
   mediaReady = false;
   state.hasWebRTC = false;
   
-  // Use video element for WebM stream (includes audio + video)
   el.callVideo.classList.remove('hidden');
   el.callNoVideo.classList.add('hidden');
   el.callMjpeg.classList.add('hidden');
   
-  // Try WebM format first (includes both audio and video)
-  // Server will fall back to MJPEG if WebM not available
+  // IMPORTANT: For streaming URLs, muted MUST be false to hear audio
+  // We will NOT mute based on speakerMuted here - that only applies to received audio
   const url = `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}?format=webm`;
-  console.log('🎬 Starting stream (WebM with audio):', url);
+  console.log('🎬 Starting MJPEG stream:', url);
   
+  el.callVideo.muted = false;  // CRITICAL: must be false for audio in streaming
   el.callVideo.src = url;
-  el.callVideo.muted = state.speakerMuted;  // Apply speaker mute state
-  el.callStatusTxt.textContent = 'Live (WebM)';
+  el.callStatusTxt.textContent = 'Live (streaming)';
   
-  // Force play
+  // Force play with explicit error handling
   const playPromise = el.callVideo.play();
   if (playPromise !== undefined) {
     playPromise
       .then(() => {
         mediaReady = true;
-        console.log('📺 Stream playing with audio');
+        console.log('✅ Stream playing');
+        // Check if audio tracks are present after a short delay
+        setTimeout(() => {
+          const audioTracks = el.callVideo.audioTracks ? el.callVideo.audioTracks.length : 0;
+          console.log('🔊 Audio tracks detected:', audioTracks);
+        }, 500);
       })
       .catch(e => {
-        console.error('⚠️ Stream play failed:', e.message);
+        console.error('⚠️ Play failed:', e.message);
         el.callStatusTxt.textContent = 'Stream error';
       });
   }
   
-  // Handle errors
-  el.callVideo.onerror = () => {
-    console.error('❌ Stream error');
+  el.callVideo.onerror = (e) => {
+    console.error('❌ Stream error:', e);
     el.callStatusTxt.textContent = 'Stream error';
   };
 }
@@ -572,19 +575,16 @@ document.getElementById('btn-mute').addEventListener('click', () => {
 document.getElementById('btn-speaker').addEventListener('click', () => {
   state.speakerMuted = !state.speakerMuted;
   
-  // Mute/unmute all audio output
+  // Only mute if using WebRTC (srcObject)
+  // For streaming URLs (MJPEG), keep unmuted to hear audio from the stream
   if (el.callVideo.srcObject) {
+    // WebRTC: mute/unmute the received stream
     el.callVideo.muted = state.speakerMuted;
+    console.log('🔊 WebRTC audio toggled:', state.speakerMuted ? 'muted' : 'unmuted');
+  } else {
+    // Streaming URL: don't change mute property, but log the intent
+    console.log('🔊 Speaker button pressed (streaming mode - audio from remote stream)');
   }
-  el.callVideo.muted = state.speakerMuted;  // Also mute video element for MJPEG/WebM
-  
-  // Mute separate audio element if used
-  const audioEl = document.getElementById('call-audio');
-  if (audioEl) {
-    audioEl.muted = state.speakerMuted;
-  }
-  
-  console.log('🔊 Speaker toggled:', state.speakerMuted ? 'muted' : 'unmuted');
   
   // Update button visual state
   const btn = document.getElementById('btn-speaker');
@@ -604,14 +604,8 @@ function endCall() {
 
   el.callVideo.srcObject = null;
   el.callVideo.src = '';
+  el.callVideo.muted = true;  // Restore to safe default
   el.callMjpeg.src = '';
-  
-  // Stop audio element
-  const audioEl = document.getElementById('call-audio');
-  if (audioEl) {
-    audioEl.src = '';
-    audioEl.pause();
-  }
 
   // Reset state
   state.hasWebRTC = false;

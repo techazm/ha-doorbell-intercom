@@ -104,19 +104,29 @@ app.get('/api/stream/:entityId', async (req, res) => {
 // Proxy go2rtc stream (MJPEG, WebM, or other formats)
 app.get('/api/go2rtc-stream/:streamName', async (req, res) => {
   if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
-  // Try WebM first (includes audio + video), fall back to MJPEG
+  
+  const streamName = req.params.streamName;
   const format = req.query.format || 'webm';
   const endpoint = format === 'webm' ? 'stream.webm' : 'stream.mjpeg';
-  const url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/${endpoint}?src=${encodeURIComponent(req.params.streamName)}`;
+  const url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/${endpoint}?src=${encodeURIComponent(streamName)}`;
+  
   try {
+    console.log(`[STREAM] Requesting ${format} format from go2rtc: ${url}`);
     const resp = await fetch(url);
+    
     if (!resp.ok) {
-      // If WebM fails, try MJPEG
+      console.warn(`[STREAM] ${format} failed (${resp.status}), attempting fallback to MJPEG`);
+      
+      // If WebM fails, try MJPEG as fallback
       if (format === 'webm') {
-        console.log('WebM not available, falling back to MJPEG');
-        const fallbackUrl = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/stream.mjpeg?src=${encodeURIComponent(req.params.streamName)}`;
+        const fallbackUrl = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/stream.mjpeg?src=${encodeURIComponent(streamName)}`;
         const fallbackResp = await fetch(fallbackUrl);
-        if (!fallbackResp.ok) return res.status(fallbackResp.status).end();
+        if (!fallbackResp.ok) {
+          console.error(`[STREAM] MJPEG fallback also failed (${fallbackResp.status})`);
+          return res.status(fallbackResp.status).end();
+        }
+        
+        console.log('[STREAM] Successfully using MJPEG fallback for video');
         res.set('Content-Type', fallbackResp.headers.get('content-type') || 'multipart/x-mixed-replace; boundary=go2rtc');
         res.set('Cache-Control', 'no-cache');
         res.set('Connection', 'keep-alive');
@@ -126,14 +136,18 @@ app.get('/api/go2rtc-stream/:streamName', async (req, res) => {
       }
       return res.status(resp.status).end();
     }
+    
+    // Successfully got the requested format
+    console.log(`[STREAM] Successfully serving ${format} stream for ${streamName}`);
     res.set('Content-Type', resp.headers.get('content-type') || 'multipart/x-mixed-replace; boundary=go2rtc');
     res.set('Cache-Control', 'no-cache');
     res.set('Connection', 'keep-alive');
+    res.set('Access-Control-Allow-Origin', '*');
     resp.body.pipe(res);
     req.on('close', () => resp.body.destroy());
   } catch (e) {
-    console.error('go2rtc stream proxy error:', e.message);
-    res.status(500).end();
+    console.error(`[STREAM] Proxy error for ${streamName}:`, e.message);
+    res.status(500).json({ error: 'Stream proxy failed', details: e.message });
   }
 });
 
