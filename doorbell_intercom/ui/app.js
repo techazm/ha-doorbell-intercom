@@ -206,10 +206,6 @@ async function answerCall() {
   const camera   = state.pendingCamera;
   const go2rtc   = state.pendingGo2rtc;
 
-  console.log('📞 Answering doorbell:', doorbell);
-  console.log('go2rtc stream:', go2rtc, 'URL:', state.config?.go2rtc_url);
-  console.log('camera_entity:', camera);
-
   wsSend({ type: 'call_answered', doorbell });
 
   el.callDbName.textContent    = doorbell;
@@ -219,12 +215,12 @@ async function answerCall() {
   el.callNoVideo.classList.remove('hidden');
   showScreen('call');
 
-  // Prioritize go2rtc WebRTC for two-way audio + video
+  // Use go2rtc MJPEG if configured (smooth video, no ICE issues)
   if (go2rtc && state.config?.go2rtc_url) {
-    console.log('🎥 Trying go2rtc WebRTC (local network candidates)...');
-    await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
+    console.log('🎥 Starting go2rtc MJPEG stream...');
+    startGo2rtcMjpeg(go2rtc);
   } else if (camera) {
-    console.log('⚠️  No go2rtc configured, using snapshot mode');
+    console.log('📷 Using HA snapshot mode...');
     startSnapshotFallback(camera);
     el.callStatusTxt.textContent = 'Live (snapshot mode)';
   } else {
@@ -371,6 +367,20 @@ async function applyWebRTCAnswer(msg) {
     console.error('setRemoteDescription failed:', e.message);
     startMjpegFallback();
   }
+}
+
+// ── go2rtc MJPEG stream (smooth continuous video via server proxy) ────────────
+function startGo2rtcMjpeg(streamName) {
+  stopSnapshotFallback();
+  state.hasWebRTC = false;
+  el.callVideo.classList.add('hidden');
+  el.callNoVideo.classList.remove('hidden');
+  el.callMjpeg.classList.add('hidden');
+
+  const url = `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}`;
+  console.log('📡 go2rtc MJPEG URL:', url);
+  el.callMjpeg.src = url;
+  el.callStatusTxt.textContent = 'Live';
 }
 
 // ── MJPEG fallback (one-way video — works with any HA camera entity) ──────────
@@ -636,9 +646,6 @@ async function openDoorbellFromList(index) {
   state.pendingGo2rtc   = doorbell.go2rtc_stream || null;
   state.pendingSpeaker  = doorbell.speaker_entity || null;
 
-  console.log('📱 Opening doorbell from list:', doorbell.name);
-  console.log('Config:', { go2rtc_stream: doorbell.go2rtc_stream, camera_entity: doorbell.camera_entity });
-
   el.callDbName.textContent    = doorbell.name;
   el.callStatusTxt.textContent = 'Connecting…';
   el.callVideo.classList.add('hidden');
@@ -646,15 +653,15 @@ async function openDoorbellFromList(index) {
   el.callNoVideo.classList.remove('hidden');
   showScreen('call');
 
-  const go2rtc   = state.pendingGo2rtc;
-  const camera   = state.pendingCamera;
+  const go2rtc = state.pendingGo2rtc;
+  const camera = state.pendingCamera;
 
-  // Prioritize go2rtc WebRTC for audio + video (local network)
+  // Use go2rtc MJPEG if configured (smooth video, no ICE issues)
   if (go2rtc && state.config?.go2rtc_url) {
-    console.log('🎥 Trying go2rtc WebRTC (local network candidates)...');
-    await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
+    console.log('🎥 Starting go2rtc MJPEG stream...');
+    startGo2rtcMjpeg(go2rtc);
   } else if (camera) {
-    console.log('⚠️  No go2rtc configured, using snapshot mode');
+    console.log('📷 Using HA snapshot mode...');
     startSnapshotFallback(camera);
     el.callStatusTxt.textContent = 'Live (snapshot mode)';
   } else {

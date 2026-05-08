@@ -77,7 +77,7 @@ app.get('/api/snapshot/:entityId', async (req, res) => {
   }
 });
 
-// Proxy MJPEG stream — fallback when WebRTC is unavailable
+// Proxy MJPEG stream from HA — fallback when WebRTC is unavailable
 app.get('/api/stream/:entityId', async (req, res) => {
   try {
     const resp = await haFetch(`/camera_proxy_stream/${req.params.entityId}`);
@@ -88,6 +88,27 @@ app.get('/api/stream/:entityId', async (req, res) => {
     req.on('close', () => resp.body.destroy());
   } catch (e) {
     console.error('Stream proxy error:', e.message);
+    res.status(500).end();
+  }
+});
+
+// Proxy go2rtc MJPEG stream — smooth continuous video without WebRTC ICE issues
+app.get('/api/go2rtc-stream/:streamName', async (req, res) => {
+  if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
+  const url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/stream.mjpeg?src=${encodeURIComponent(req.params.streamName)}`;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      console.error('go2rtc MJPEG error:', resp.status, url);
+      return res.status(resp.status).end();
+    }
+    res.set('Content-Type', resp.headers.get('content-type') || 'multipart/x-mixed-replace; boundary=go2rtc');
+    res.set('Cache-Control', 'no-cache');
+    res.set('Connection', 'keep-alive');
+    resp.body.pipe(res);
+    req.on('close', () => resp.body.destroy());
+  } catch (e) {
+    console.error('go2rtc stream proxy error:', e.message);
     res.status(500).end();
   }
 });
