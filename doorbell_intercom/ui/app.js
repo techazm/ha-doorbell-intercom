@@ -435,7 +435,6 @@ function tryStreamFormat(streamName, formats, index) {
   // Set up one-time handlers for this attempt
   const onCanPlay = () => {
     console.log(`✅ Format ${format} working! Video can play`);
-    mediaReady = true;
     el.callVideo.removeEventListener('canplay', onCanPlay);
     el.callVideo.removeEventListener('error', onError);
     
@@ -443,10 +442,16 @@ function tryStreamFormat(streamName, formats, index) {
     setTimeout(() => {
       const audioTracks = el.callVideo.audioTracks ? el.callVideo.audioTracks.length : 0;
       console.log(`🔊 Format ${format} has ${audioTracks} audio track(s)`);
+      
       if (audioTracks > 0) {
+        // FOUND AUDIO! Stop trying formats
+        mediaReady = true;
+        console.log(`✅ SUCCESS: ${format} has audio - using this format`);
         el.callStatusTxt.textContent = `Live (${format.toUpperCase()} with audio)`;
       } else {
-        el.callStatusTxt.textContent = `Live (${format.toUpperCase()})`;
+        // NO AUDIO - try next format
+        console.log(`⚠️ ${format} has no audio, trying next format...`);
+        tryStreamFormat(streamName, formats, index + 1);
       }
     }, 300);
   };
