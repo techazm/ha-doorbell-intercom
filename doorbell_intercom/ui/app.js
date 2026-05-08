@@ -244,12 +244,23 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     const pc = buildPeerConnection();
     state.pc = pc;
 
+    // Monitor connection state
+    pc.onconnectionstatechange = () => {
+      console.log('🔗 PC connection state:', pc.connectionState);
+    };
+    pc.oniceconnectionstatechange = () => {
+      console.log('❄️ ICE connection state:', pc.iceConnectionState);
+    };
+
     await attachMicrophone(pc);
     pc.addTransceiver('video', { direction: 'recvonly' });
 
     pc.ontrack = (e) => {
-      console.log('📹 Got video track from go2rtc');
-      if (e.track.kind === 'video') showVideoStream(e.streams[0] || new MediaStream([e.track]));
+      console.log('📹 Got track:', e.track.kind, 'ready state:', e.track.readyState);
+      if (e.track.kind === 'video') {
+        console.log('📺 Video track ready, stream count:', e.streams.length);
+        showVideoStream(e.streams[0] || new MediaStream([e.track]));
+      }
     };
 
     const offer = await pc.createOffer();
@@ -416,6 +427,22 @@ function showVideoStream(stream) {
   el.callVideo.muted     = state.speakerMuted;
   el.callVideo.classList.remove('hidden');
   el.callNoVideo.classList.add('hidden');
+  
+  // Force play (autoplay may be blocked in ingress iframe)
+  const playPromise = el.callVideo.play();
+  if (playPromise !== undefined) {
+    playPromise
+      .then(() => console.log('📺 Video playing'))
+      .catch(e => console.error('⚠️ Play failed:', e.message));
+  }
+  
+  // Monitor stream readiness
+  el.callVideo.onloadedmetadata = () => {
+    console.log('✅ Video metadata loaded, dimensions:', el.callVideo.videoWidth, 'x', el.callVideo.videoHeight);
+  };
+  
+  el.callVideo.onplay = () => console.log('▶️ Video started playing');
+  el.callVideo.onpause = () => console.log('⏸️ Video paused');
   
   // Clear the error event since we have a successful WebRTC connection
   el.callMjpeg.onerror = null;
