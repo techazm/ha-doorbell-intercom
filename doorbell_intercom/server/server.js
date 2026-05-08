@@ -92,16 +92,13 @@ app.get('/api/stream/:entityId', async (req, res) => {
   }
 });
 
-// Proxy go2rtc MJPEG stream — smooth continuous video without WebRTC ICE issues
+// Proxy go2rtc MJPEG stream
 app.get('/api/go2rtc-stream/:streamName', async (req, res) => {
   if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
   const url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/stream.mjpeg?src=${encodeURIComponent(req.params.streamName)}`;
   try {
     const resp = await fetch(url);
-    if (!resp.ok) {
-      console.error('go2rtc MJPEG error:', resp.status, url);
-      return res.status(resp.status).end();
-    }
+    if (!resp.ok) return res.status(resp.status).end();
     res.set('Content-Type', resp.headers.get('content-type') || 'multipart/x-mixed-replace; boundary=go2rtc');
     res.set('Cache-Control', 'no-cache');
     res.set('Connection', 'keep-alive');
@@ -110,6 +107,33 @@ app.get('/api/go2rtc-stream/:streamName', async (req, res) => {
   } catch (e) {
     console.error('go2rtc stream proxy error:', e.message);
     res.status(500).end();
+  }
+});
+
+// Proxy go2rtc WebRTC SDP signaling (avoids CORS from browser to go2rtc)
+app.post('/api/webrtc-proxy/:streamName', async (req, res) => {
+  if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
+  const url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/webrtc?src=${encodeURIComponent(req.params.streamName)}`;
+  try {
+    const body = await new Promise((resolve, reject) => {
+      let data = '';
+      req.on('data', chunk => data += chunk);
+      req.on('end', () => resolve(data));
+      req.on('error', reject);
+    });
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/sdp' },
+      body,
+    });
+    if (!resp.ok) throw new Error(`go2rtc responded with HTTP ${resp.status}`);
+    const sdp = await resp.text();
+    console.log('WebRTC proxy: relayed SDP exchange for', req.params.streamName);
+    res.set('Content-Type', 'application/sdp');
+    res.send(sdp);
+  } catch (e) {
+    console.error('WebRTC proxy error:', e.message);
+    res.status(502).json({ error: e.message });
   }
 });
 

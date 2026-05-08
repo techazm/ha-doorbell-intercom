@@ -215,12 +215,10 @@ async function answerCall() {
   el.callNoVideo.classList.remove('hidden');
   showScreen('call');
 
-  // Use go2rtc MJPEG if configured (smooth video, no ICE issues)
   if (go2rtc && state.config?.go2rtc_url) {
-    console.log('🎥 Starting go2rtc MJPEG stream...');
-    startGo2rtcMjpeg(go2rtc);
+    console.log('🎥 Starting go2rtc WebRTC (SDP via proxy)...');
+    await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
   } else if (camera) {
-    console.log('📷 Using HA snapshot mode...');
     startSnapshotFallback(camera);
     el.callStatusTxt.textContent = 'Live (snapshot mode)';
   } else {
@@ -637,10 +635,7 @@ function renderDoorbellList() {
 
 async function openDoorbellFromList(index) {
   const doorbell = state.config?.doorbells?.[index];
-  if (!doorbell) {
-    console.error('Doorbell not found at index:', index);
-    return;
-  }
+  if (!doorbell) return;
 
   state.currentDoorbell = doorbell.name;
   state.pendingCamera   = doorbell.camera_entity;
@@ -657,12 +652,10 @@ async function openDoorbellFromList(index) {
   const go2rtc = state.pendingGo2rtc;
   const camera = state.pendingCamera;
 
-  // Use go2rtc MJPEG if configured (smooth video, no ICE issues)
   if (go2rtc && state.config?.go2rtc_url) {
-    console.log('🎥 Starting go2rtc MJPEG stream...');
-    startGo2rtcMjpeg(go2rtc);
+    console.log('🎥 Starting go2rtc WebRTC (SDP via proxy)...');
+    await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
   } else if (camera) {
-    console.log('📷 Using HA snapshot mode...');
     startSnapshotFallback(camera);
     el.callStatusTxt.textContent = 'Live (snapshot mode)';
   } else {
