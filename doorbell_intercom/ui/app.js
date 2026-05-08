@@ -257,16 +257,23 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     };
 
     await attachMicrophone(pc);
+    // Create a combined media stream to hold both audio and video tracks
+    const combinedStream = new MediaStream();
+    
     // Request audio and video using offer constraints (more compatible with go2rtc)
-    // Don't use addTransceiver - some servers generate invalid SDP with it
-
     pc.ontrack = (e) => {
       console.log('📹 Got track:', e.track.kind, 'ready state:', e.track.readyState);
-      if (e.track.kind === 'video') {
-        console.log('📺 Video track ready, stream count:', e.streams.length);
-        showVideoStream(e.streams[0] || new MediaStream([e.track]));
-      } else if (e.track.kind === 'audio') {
-        console.log('🔊 Audio track ready!');
+      
+      // Add the track to our combined stream
+      combinedStream.addTrack(e.track);
+      console.log('✅ Added', e.track.kind, 'track to stream. Stream now has', 
+                  combinedStream.getVideoTracks().length, 'video,',
+                  combinedStream.getAudioTracks().length, 'audio');
+      
+      // Show video stream with combined audio + video
+      if (combinedStream.getVideoTracks().length > 0) {
+        console.log('🎬 Ready to display: video + audio bundled');
+        showVideoStream(combinedStream);
       }
     };
 
