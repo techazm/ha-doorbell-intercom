@@ -369,16 +369,20 @@ async function applyWebRTCAnswer(msg) {
   }
 }
 
-// ── go2rtc MJPEG stream (smooth continuous video via server proxy) ────────────
+// ── go2rtc MJPEG stream via HA camera proxy (smooth continuous video) ───────
 function startGo2rtcMjpeg(streamName) {
+  // Use HA's camera proxy stream - it proxies go2rtc MJPEG through the supervisor
+  // This avoids direct network access to go2rtc and works reliably
+  const entity = state.pendingCamera;
+  if (!entity) { el.callStatusTxt.textContent = 'No camera configured'; return; }
   stopSnapshotFallback();
   state.hasWebRTC = false;
   el.callVideo.classList.add('hidden');
   el.callNoVideo.classList.remove('hidden');
   el.callMjpeg.classList.add('hidden');
 
-  const url = `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}`;
-  console.log('📡 go2rtc MJPEG URL:', url);
+  const url = `${apiBase}/api/stream/${entity}`;
+  console.log('📡 MJPEG stream URL:', url);
   el.callMjpeg.src = url;
   el.callStatusTxt.textContent = 'Live';
 }
@@ -550,12 +554,9 @@ function endCall() {
 
 el.callMjpeg.addEventListener('error', () => {
   const entity = state.pendingCamera;
-  // Only start snapshot fallback if:
-  // 1. We have a camera entity
-  // 2. We're not already in snapshot mode (no timer)
-  // 3. We don't have an active WebRTC connection
+  // Only fall back to snapshot if not already in snapshot mode and no active WebRTC
   if (entity && !state.snapshotTimer && !state.hasWebRTC) {
-    console.warn('⚠️ Image render failed, switching to snapshot mode');
+    console.warn('⚠️ MJPEG stream failed, switching to snapshot mode');
     startSnapshotFallback(entity);
   }
 });
