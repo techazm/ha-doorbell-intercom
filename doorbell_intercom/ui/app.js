@@ -501,15 +501,18 @@ function showVideoStream(stream) {
   // Clear the error event since we have a successful WebRTC connection
   el.callMjpeg.onerror = null;
   
-  // Enable mic button for WebRTC (has audio)
-  document.getElementById('btn-mute').disabled = false;
+  // Mic button: disabled in HA ingress (browser security blocks getUserMedia in iframe)
+  // Speaker button: enabled for received audio control
+  document.getElementById('btn-mute').disabled = true;
+  document.getElementById('btn-mute').title = 'Microphone not available in HA ingress context (browser security)';
+  document.getElementById('btn-speaker').disabled = false;
 }
 
 // ── In-call controls ──────────────────────────────────────────────────────────
 document.getElementById('btn-mute').addEventListener('click', () => {
   const btn = document.getElementById('btn-mute');
   if (btn.disabled || !state.localStream) {
-    console.log('Mic not available:', { disabled: btn.disabled, hasStream: !!state.localStream });
+    console.log('⚠️ Mic not available (ingress iframe blocks getUserMedia)');
     return;
   }
   state.muted = !state.muted;
@@ -522,12 +525,17 @@ document.getElementById('btn-mute').addEventListener('click', () => {
 
 document.getElementById('btn-speaker').addEventListener('click', () => {
   state.speakerMuted = !state.speakerMuted;
-  // Only mute video element if it's a VIDEO tag (WebRTC mode)
-  if (el.callVideo.tagName === 'VIDEO' && el.callVideo.srcObject) {
+  
+  // Mute/unmute all audio output
+  if (el.callVideo.srcObject) {
     el.callVideo.muted = state.speakerMuted;
-    console.log('Speaker toggled:', state.speakerMuted ? 'muted' : 'unmuted');
+    console.log('🔊 Speaker toggled:', state.speakerMuted ? 'muted' : 'unmuted');
   }
-  document.getElementById('btn-speaker').classList.toggle('active', !state.speakerMuted);
+  
+  // Update button visual state
+  const btn = document.getElementById('btn-speaker');
+  btn.classList.toggle('active', !state.speakerMuted);
+  btn.style.opacity = state.speakerMuted ? '0.5' : '1';
 });
 
 document.getElementById('btn-hangup').addEventListener('click', () => {
