@@ -478,9 +478,11 @@ function showVideoStream(stream) {
   el.callMjpeg.src = '';
   el.callMjpeg.classList.add('hidden');
   el.callVideo.srcObject = stream;
-  el.callVideo.muted     = state.speakerMuted;
+  el.callVideo.muted     = state.speakerMuted;  // Start with user's preference (default: unmuted for audio)
   el.callVideo.classList.remove('hidden');
   el.callNoVideo.classList.add('hidden');
+  
+  console.log('🎬 Video stream ready, muted=' + el.callVideo.muted);
   
   // Force play (autoplay may be blocked in ingress iframe)
   const playPromise = el.callVideo.play();
