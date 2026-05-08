@@ -28,7 +28,7 @@ try {
   console.error('Failed to load add-on config:', e.message);
 }
 
-const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'ui', 'index.html'), 'utf8');
+const indexHtml = fs.readFileSync(path.join(__dirname, 'ui', 'index.html'), 'utf8');
 
 // ── HTTP + WebSocket server ───────────────────────────────────────────────────
 
@@ -38,7 +38,7 @@ const wss = new WebSocket.Server({ noServer: true });
 
 app.use(express.json());
 // Static assets (style.css, app.js) — serve without index.html so we can inject
-app.use(express.static(path.join(__dirname, '..', 'ui'), { index: false }));
+app.use(express.static(path.join(__dirname, 'ui'), { index: false }));
 
 // Serve index.html with ingress base path injected
 app.get('/', (req, res) => {
