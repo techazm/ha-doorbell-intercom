@@ -204,10 +204,8 @@ async function answerCall() {
   stopRingTone();
   const doorbell = state.currentDoorbell;
   const camera   = state.pendingCamera;
-  const go2rtc   = state.pendingGo2rtc;
 
   console.log('📞 Answering doorbell:', doorbell);
-  console.log('go2rtc stream:', go2rtc, 'URL:', state.config?.go2rtc_url);
   console.log('camera_entity:', camera);
 
   wsSend({ type: 'call_answered', doorbell });
@@ -219,19 +217,11 @@ async function answerCall() {
   el.callNoVideo.classList.remove('hidden');
   showScreen('call');
 
-  if (go2rtc && state.config?.go2rtc_url) {
-    console.log('🎥 Trying go2rtc WebRTC...');
-    await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
-  } else if (camera) {
-    console.log('⚠️  No go2rtc configured, trying HA WebRTC...');
-    if (state.haWebRtcUnsupported) {
-      console.log('⛔ HA WebRTC unsupported, using snapshot mode');
-      startMjpegFallback();
-      el.callStatusTxt.textContent = 'Live (video only)';
-    } else {
-      console.log('📡 Attempting HA WebRTC relay...');
-      await startHAWebRTC(camera);
-    }
+  // Use snapshot mode (most reliable for local cameras)
+  if (camera) {
+    console.log('📷 Using snapshot mode for reliable video');
+    startSnapshotFallback(camera);
+    el.callStatusTxt.textContent = 'Live (snapshot mode)';
   } else {
     el.callStatusTxt.textContent = 'No camera configured';
   }
@@ -647,22 +637,13 @@ async function openDoorbellFromList(index) {
   el.callNoVideo.classList.remove('hidden');
   showScreen('call');
 
-  const go2rtc   = state.pendingGo2rtc;
-  const camera   = state.pendingCamera;
+  const camera = state.pendingCamera;
 
-  if (go2rtc && state.config?.go2rtc_url) {
-    console.log('🎥 Trying go2rtc WebRTC...');
-    await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
-  } else if (camera) {
-    console.log('⚠️  No go2rtc configured, trying HA WebRTC...');
-    if (state.haWebRtcUnsupported) {
-      console.log('⛔ HA WebRTC unsupported, using snapshot mode');
-      startSnapshotFallback(camera);
-      el.callStatusTxt.textContent = 'Live (snapshot mode)';
-    } else {
-      console.log('📡 Attempting HA WebRTC relay...');
-      await startHAWebRTC(camera);
-    }
+  // Use HA camera entity snapshot mode (most reliable)
+  if (camera) {
+    console.log('📷 Using snapshot mode for reliable video');
+    startSnapshotFallback(camera);
+    el.callStatusTxt.textContent = 'Live (snapshot mode)';
   } else {
     el.callStatusTxt.textContent = 'No camera configured';
   }
