@@ -18,6 +18,7 @@ const state = {
   speakerMuted:     false,
   currentDoorbell:  null,
   pendingCamera:    null,
+  pendingGo2rtc:    null,       // go2rtc stream name for WebRTC
   pendingSpeaker:   null,
   haSessionId:      null,
   config:           null,
@@ -203,6 +204,7 @@ async function answerCall() {
   stopRingTone();
   const doorbell = state.currentDoorbell;
   const camera   = state.pendingCamera;
+  const go2rtc   = state.pendingGo2rtc;
 
   wsSend({ type: 'call_answered', doorbell });
 
@@ -213,8 +215,10 @@ async function answerCall() {
   el.callNoVideo.classList.remove('hidden');
   showScreen('call');
 
-  if (camera) {
-    console.log('📷 Using snapshot mode (reliable)');
+  if (go2rtc && state.config?.go2rtc_url) {
+    console.log('🎥 Starting go2rtc WebRTC with configured candidates...');
+    await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
+  } else if (camera) {
     startSnapshotFallback(camera);
     el.callStatusTxt.textContent = 'Live (snapshot mode)';
   } else {
@@ -635,6 +639,7 @@ async function openDoorbellFromList(index) {
 
   state.currentDoorbell = doorbell.name;
   state.pendingCamera   = doorbell.camera_entity;
+  state.pendingGo2rtc   = doorbell.go2rtc_stream || null;
   state.pendingSpeaker  = doorbell.speaker_entity || null;
 
   el.callDbName.textContent    = doorbell.name;
@@ -644,9 +649,14 @@ async function openDoorbellFromList(index) {
   el.callNoVideo.classList.remove('hidden');
   showScreen('call');
 
-  if (state.pendingCamera) {
-    console.log('📷 Using snapshot mode (reliable)');
-    startSnapshotFallback(state.pendingCamera);
+  const go2rtc = state.pendingGo2rtc;
+  const camera = state.pendingCamera;
+
+  if (go2rtc && state.config?.go2rtc_url) {
+    console.log('🎥 Starting go2rtc WebRTC with configured candidates...');
+    await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
+  } else if (camera) {
+    startSnapshotFallback(camera);
     el.callStatusTxt.textContent = 'Live (snapshot mode)';
   } else {
     el.callStatusTxt.textContent = 'No camera configured';
