@@ -145,41 +145,43 @@ app.get('/api/go2rtc-audio/:streamName', async (req, res) => {
   if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
   
   const streamName = req.params.streamName;
-  const format = req.query.format || 'aac';
   
-  const formatMap = {
-    'aac': 'stream.aac',
-    'opus': 'stream.opus',
-    'g711': 'stream.g711',
-    'wav': 'stream.wav',
-  };
+  // Try audio-only endpoints in order of likelihood
+  const audioEndpoints = [
+    { endpoint: 'stream.aac', format: 'aac' },
+    { endpoint: 'stream.opus', format: 'opus' },
+    { endpoint: 'stream.g711', format: 'g711' },
+    { endpoint: 'stream.wav', format: 'wav' },
+  ];
   
-  const endpoint = formatMap[format];
-  if (!endpoint) return res.status(400).json({ error: 'Invalid audio format' });
-  
-  const url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/${endpoint}?src=${encodeURIComponent(streamName)}`;
-  
-  try {
-    console.log(`[AUDIO] Requesting ${format} from go2rtc: ${url}`);
-    const resp = await fetch(url);
-    
-    if (!resp.ok) {
-      console.warn(`[AUDIO] ${format} returned ${resp.status}`);
-      return res.status(resp.status).end();
+  // Try each audio endpoint
+  for (const {endpoint, format} of audioEndpoints) {
+    const url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/${endpoint}?src=${encodeURIComponent(streamName)}`;
+    try {
+      console.log(`[AUDIO] Trying ${format} endpoint: ${url}`);
+      const resp = await fetch(url);
+      if (resp.ok) {
+        console.log(`[AUDIO] ✅ Found ${format} audio stream!`);
+        res.set('Content-Type', resp.headers.get('content-type') || `audio/${format}`);
+        res.set('Cache-Control', 'no-cache');
+        res.set('Connection', 'keep-alive');
+        res.set('Access-Control-Allow-Origin', '*');
+        resp.body.pipe(res);
+        req.on('close', () => resp.body.destroy());
+        return;
+      }
+    } catch (e) {
+      console.log(`[AUDIO] ${format} endpoint failed:`, e.message);
     }
-    
-    console.log(`[AUDIO] Serving ${format} audio stream for ${streamName}`);
-    res.set('Content-Type', resp.headers.get('content-type') || 'audio/aac');
-    res.set('Cache-Control', 'no-cache');
-    res.set('Connection', 'keep-alive');
-    res.set('Access-Control-Allow-Origin', '*');
-    resp.body.pipe(res);
-    req.on('close', () => resp.body.destroy());
-  } catch (e) {
-    console.error(`[AUDIO] Proxy error for ${streamName}:`, e.message);
-    res.status(500).json({ error: 'Audio proxy failed', details: e.message });
   }
-});;
+  
+  // No audio endpoints found
+  console.log('[AUDIO] ❌ No audio streams available from go2rtc');
+  res.status(404).json({ 
+    error: 'No audio stream available',
+    message: 'Audio is present in source but not encoded by go2rtc. Check go2rtc config to enable audio encoding for output formats.'
+  });
+});
 
 // Proxy go2rtc WebRTC SDP signaling (avoids CORS from browser to go2rtc)
 app.post('/api/webrtc-proxy/:streamName', async (req, res) => {
