@@ -250,9 +250,7 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         const cand = e.candidate.candidate;
-        if (cand.includes('192.168') || cand.includes('host')) {
-          console.log('🧊 Local ICE candidate found:', cand.substring(0, 80) + '...');
-        }
+        console.log('🧊 ICE candidate:', cand.substring(0, 100));
       } else {
         console.log('✅ ICE gathering complete');
       }
@@ -298,24 +296,20 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     
     if (!sdp || sdp.length < 10) throw new Error('Empty SDP response from server');
     
+    // Log candidates from go2rtc answer
+    const candidateLines = sdp.split('\n').filter(line => line.startsWith('a=candidate:'));
+    console.log(`📊 SDP answer contains ${candidateLines.length} candidates from go2rtc:`);
+    candidateLines.forEach((line, i) => {
+      console.log(`  [${i}] ${line.substring(0, 120)}`);
+    });
+    
     await pc.setRemoteDescription({ type: 'answer', sdp });
     console.log('✅ WebRTC answer accepted from go2rtc!');
     el.callStatusTxt.textContent = 'Live';
-    
-    // Timeout fallback: if connection fails within 15 seconds, fall back to snapshot
-    // Give local network candidates time to establish
-    setTimeout(() => {
-      if (pc.connectionState === 'failed' || pc.iceConnectionState === 'failed') {
-        console.warn('⏱️ WebRTC connection failed after 15s, falling back to snapshot');
-        startSnapshotFallback(state.pendingCamera);
-        el.callStatusTxt.textContent = 'Live (snapshot mode)';
-      }
-    }, 15000);
 
   } catch (e) {
     console.error('❌ WebRTC failed:', e.message);
-    el.callStatusTxt.textContent = 'Live (snapshot mode)';
-    startSnapshotFallback(state.pendingCamera);
+    el.callStatusTxt.textContent = `Error: ${e.message}`;
   }
 }
 
@@ -430,7 +424,9 @@ function buildPeerConnection() {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },  // Same STUN as Frigate go2rtc
     ],
-    iceTransportPolicy: 'all', // Allow all candidates (host, srflx, prflx, relay)
+    iceTransportPolicy: 'all',  // Accept all ICE candidates (host, srflx, prflx, relay)
+    bundlePolicy: 'max-bundle',  // Reduce port usage
+    rtcpMuxPolicy: 'require',    // Use RTCP mux
   });
 }
 
@@ -454,6 +450,7 @@ async function attachMicrophone(pc) {
 function waitForIceGathering(pc) {
   return new Promise((resolve) => {
     if (pc.iceGatheringState === 'complete') { 
+      console.log('✅ ICE gathering already complete');
       resolve(); 
       return; 
     }
@@ -465,12 +462,12 @@ function waitForIceGathering(pc) {
       } 
     };
     pc.addEventListener('icegatheringstatechange', done);
-    // Safety timeout — local network candidates may take time
+    // Wait up to 15s for local network candidates
     setTimeout(() => {
       pc.removeEventListener('icegatheringstatechange', done);
-      console.warn('⏱️ ICE gathering timeout (10s), proceeding anyway with available candidates');
+      console.warn('⏱️ ICE gathering timeout (15s), proceeding with available candidates');
       resolve();
-    }, 10000);
+    }, 15000);
   });
 }
 
