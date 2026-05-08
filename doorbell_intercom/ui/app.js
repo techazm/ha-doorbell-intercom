@@ -204,8 +204,10 @@ async function answerCall() {
   stopRingTone();
   const doorbell = state.currentDoorbell;
   const camera   = state.pendingCamera;
+  const go2rtc   = state.pendingGo2rtc;
 
   console.log('📞 Answering doorbell:', doorbell);
+  console.log('go2rtc stream:', go2rtc, 'URL:', state.config?.go2rtc_url);
   console.log('camera_entity:', camera);
 
   wsSend({ type: 'call_answered', doorbell });
@@ -217,9 +219,12 @@ async function answerCall() {
   el.callNoVideo.classList.remove('hidden');
   showScreen('call');
 
-  // Use snapshot mode (most reliable for local cameras)
-  if (camera) {
-    console.log('📷 Using snapshot mode for reliable video');
+  // Prioritize go2rtc WebRTC for two-way audio + video
+  if (go2rtc && state.config?.go2rtc_url) {
+    console.log('🎥 Trying go2rtc WebRTC (local network candidates)...');
+    await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
+  } else if (camera) {
+    console.log('⚠️  No go2rtc configured, using snapshot mode');
     startSnapshotFallback(camera);
     el.callStatusTxt.textContent = 'Live (snapshot mode)';
   } else {
@@ -250,7 +255,10 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        console.log('🧊 ICE candidate:', e.candidate.candidate.substring(0, 60) + '...');
+        const cand = e.candidate.candidate;
+        if (cand.includes('192.168') || cand.includes('host')) {
+          console.log('🧊 Local ICE candidate found:', cand.substring(0, 80) + '...');
+        }
       } else {
         console.log('✅ ICE gathering complete');
       }
@@ -291,16 +299,18 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     if (!sdp || sdp.length < 10) throw new Error('Empty SDP response from go2rtc');
     
     await pc.setRemoteDescription({ type: 'answer', sdp });
-    console.log('✅ go2rtc WebRTC connected!');
+    console.log('✅ go2rtc WebRTC answer accepted!');
     el.callStatusTxt.textContent = 'Live';
     
-    // Timeout fallback: if connection fails within 10 seconds, fall back to snapshot
+    // Timeout fallback: if connection fails within 15 seconds, fall back to snapshot
+    // Give local network candidates time to establish
     setTimeout(() => {
       if (pc.connectionState === 'failed' || pc.iceConnectionState === 'failed') {
-        console.warn('⏱️ WebRTC connection failed, falling back to snapshot');
+        console.warn('⏱️ WebRTC connection failed after 15s, falling back to snapshot');
         startSnapshotFallback(state.pendingCamera);
+        el.callStatusTxt.textContent = 'Live (snapshot mode)';
       }
-    }, 10000);
+    }, 15000);
 
   } catch (e) {
     console.error('❌ go2rtc WebRTC failed:', e.message);
@@ -399,11 +409,10 @@ function stopSnapshotFallback() {
 function buildPeerConnection() {
   return new RTCPeerConnection({
     iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
+      // For local-only networks, use host candidates only (no public STUN)
+      // This allows WebRTC to work within private networks
     ],
+    iceTransportPolicy: 'all', // Allow all candidates (host, srflx, prflx, relay)
   });
 }
 
@@ -438,12 +447,12 @@ function waitForIceGathering(pc) {
       } 
     };
     pc.addEventListener('icegatheringstatechange', done);
-    // Safety timeout — some networks take time (increased from 4 to 8 seconds)
+    // Safety timeout — local network candidates may take time
     setTimeout(() => {
       pc.removeEventListener('icegatheringstatechange', done);
-      console.warn('⏱️ ICE gathering timeout (8s), proceeding anyway');
+      console.warn('⏱️ ICE gathering timeout (10s), proceeding anyway with available candidates');
       resolve();
-    }, 8000);
+    }, 10000);
   });
 }
 
@@ -637,11 +646,15 @@ async function openDoorbellFromList(index) {
   el.callNoVideo.classList.remove('hidden');
   showScreen('call');
 
-  const camera = state.pendingCamera;
+  const go2rtc   = state.pendingGo2rtc;
+  const camera   = state.pendingCamera;
 
-  // Use HA camera entity snapshot mode (most reliable)
-  if (camera) {
-    console.log('📷 Using snapshot mode for reliable video');
+  // Prioritize go2rtc WebRTC for audio + video (local network)
+  if (go2rtc && state.config?.go2rtc_url) {
+    console.log('🎥 Trying go2rtc WebRTC (local network candidates)...');
+    await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
+  } else if (camera) {
+    console.log('⚠️  No go2rtc configured, using snapshot mode');
     startSnapshotFallback(camera);
     el.callStatusTxt.textContent = 'Live (snapshot mode)';
   } else {
