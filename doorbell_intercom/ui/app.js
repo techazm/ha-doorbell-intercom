@@ -392,32 +392,6 @@ async function applyWebRTCAnswer(msg) {
   }
 }
 
-// ── go2rtc MJPEG stream via HA camera proxy (smooth continuous video) ───────
-function startGo2rtcMjpeg(streamName) {
-  // Use HA's camera proxy stream - it proxies go2rtc MJPEG through the supervisor
-  // This avoids direct network access to go2rtc and works reliably
-  const entity = state.pendingCamera;
-  if (!entity) { el.callStatusTxt.textContent = 'No camera configured'; return; }
-  stopSnapshotFallback();
-  state.hasWebRTC = false;
-  el.callVideo.classList.add('hidden');
-  el.callNoVideo.classList.remove('hidden');
-  el.callMjpeg.classList.add('hidden');
-
-  const url = `${apiBase}/api/stream/${entity}`;
-  console.log('📡 MJPEG stream URL:', url);
-  el.callMjpeg.src = url;
-  el.callStatusTxt.textContent = 'Live';
-}
-
-// ── MJPEG fallback (one-way video — works with any HA camera entity) ──────────
-function startMjpegFallback() {
-  const entity = state.pendingCamera;
-  if (!entity) { el.callStatusTxt.textContent = 'No video available'; return; }
-  console.log('Using snapshot mode');
-  startSnapshotFallback(entity);
-}
-
 // ── go2rtc MJPEG stream (video + audio, low latency) ──────────────────────────
 function startGo2rtcMjpeg(streamName) {
   if (!streamName) {
@@ -429,18 +403,19 @@ function startGo2rtcMjpeg(streamName) {
   mediaReady = false;
   state.hasWebRTC = false;
   
-  // Use video element for MJPEG streaming (not img - img is static only)
+  // Use video element for WebM stream (includes audio + video)
   el.callVideo.classList.remove('hidden');
   el.callNoVideo.classList.add('hidden');
   el.callMjpeg.classList.add('hidden');
   
-  // Use server proxy to get MJPEG with audio
-  const url = `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}`;
-  console.log('🎬 Starting MJPEG stream (with audio via video element):', url);
+  // Try WebM format first (includes both audio and video)
+  // Server will fall back to MJPEG if WebM not available
+  const url = `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}?format=webm`;
+  console.log('🎬 Starting stream (WebM with audio):', url);
   
   el.callVideo.src = url;
   el.callVideo.muted = state.speakerMuted;  // Apply speaker mute state
-  el.callStatusTxt.textContent = 'Live (MJPEG with audio)';
+  el.callStatusTxt.textContent = 'Live (WebM)';
   
   // Force play
   const playPromise = el.callVideo.play();
@@ -448,17 +423,17 @@ function startGo2rtcMjpeg(streamName) {
     playPromise
       .then(() => {
         mediaReady = true;
-        console.log('📺 MJPEG stream playing with audio');
+        console.log('📺 Stream playing with audio');
       })
       .catch(e => {
-        console.error('⚠️ MJPEG play failed:', e.message);
+        console.error('⚠️ Stream play failed:', e.message);
         el.callStatusTxt.textContent = 'Stream error';
       });
   }
   
   // Handle errors
   el.callVideo.onerror = () => {
-    console.error('❌ MJPEG stream error');
+    console.error('❌ Stream error');
     el.callStatusTxt.textContent = 'Stream error';
   };
 }
@@ -600,8 +575,16 @@ document.getElementById('btn-speaker').addEventListener('click', () => {
   // Mute/unmute all audio output
   if (el.callVideo.srcObject) {
     el.callVideo.muted = state.speakerMuted;
-    console.log('🔊 Speaker toggled:', state.speakerMuted ? 'muted' : 'unmuted');
   }
+  el.callVideo.muted = state.speakerMuted;  // Also mute video element for MJPEG/WebM
+  
+  // Mute separate audio element if used
+  const audioEl = document.getElementById('call-audio');
+  if (audioEl) {
+    audioEl.muted = state.speakerMuted;
+  }
+  
+  console.log('🔊 Speaker toggled:', state.speakerMuted ? 'muted' : 'unmuted');
   
   // Update button visual state
   const btn = document.getElementById('btn-speaker');
@@ -620,7 +603,15 @@ function endCall() {
   stopSnapshotFallback();
 
   el.callVideo.srcObject = null;
-  el.callMjpeg.src       = '';
+  el.callVideo.src = '';
+  el.callMjpeg.src = '';
+  
+  // Stop audio element
+  const audioEl = document.getElementById('call-audio');
+  if (audioEl) {
+    audioEl.src = '';
+    audioEl.pause();
+  }
 
   // Reset state
   state.hasWebRTC = false;

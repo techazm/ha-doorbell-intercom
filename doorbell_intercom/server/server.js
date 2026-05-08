@@ -101,13 +101,31 @@ app.get('/api/stream/:entityId', async (req, res) => {
   }
 });
 
-// Proxy go2rtc MJPEG stream
+// Proxy go2rtc stream (MJPEG, WebM, or other formats)
 app.get('/api/go2rtc-stream/:streamName', async (req, res) => {
   if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
-  const url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/stream.mjpeg?src=${encodeURIComponent(req.params.streamName)}`;
+  // Try WebM first (includes audio + video), fall back to MJPEG
+  const format = req.query.format || 'webm';
+  const endpoint = format === 'webm' ? 'stream.webm' : 'stream.mjpeg';
+  const url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/${endpoint}?src=${encodeURIComponent(req.params.streamName)}`;
   try {
     const resp = await fetch(url);
-    if (!resp.ok) return res.status(resp.status).end();
+    if (!resp.ok) {
+      // If WebM fails, try MJPEG
+      if (format === 'webm') {
+        console.log('WebM not available, falling back to MJPEG');
+        const fallbackUrl = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/stream.mjpeg?src=${encodeURIComponent(req.params.streamName)}`;
+        const fallbackResp = await fetch(fallbackUrl);
+        if (!fallbackResp.ok) return res.status(fallbackResp.status).end();
+        res.set('Content-Type', fallbackResp.headers.get('content-type') || 'multipart/x-mixed-replace; boundary=go2rtc');
+        res.set('Cache-Control', 'no-cache');
+        res.set('Connection', 'keep-alive');
+        fallbackResp.body.pipe(res);
+        req.on('close', () => fallbackResp.body.destroy());
+        return;
+      }
+      return res.status(resp.status).end();
+    }
     res.set('Content-Type', resp.headers.get('content-type') || 'multipart/x-mixed-replace; boundary=go2rtc');
     res.set('Cache-Control', 'no-cache');
     res.set('Connection', 'keep-alive');
