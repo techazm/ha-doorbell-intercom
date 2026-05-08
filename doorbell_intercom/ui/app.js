@@ -257,8 +257,8 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     };
 
     await attachMicrophone(pc);
-    pc.addTransceiver('audio', { direction: 'recvonly' });  // RECEIVE audio from go2rtc
-    pc.addTransceiver('video', { direction: 'recvonly' });  // RECEIVE video from go2rtc
+    // Request audio and video using offer constraints (more compatible with go2rtc)
+    // Don't use addTransceiver - some servers generate invalid SDP with it
 
     pc.ontrack = (e) => {
       console.log('📹 Got track:', e.track.kind, 'ready state:', e.track.readyState);
@@ -270,7 +270,11 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
       }
     };
 
-    const offer = await pc.createOffer();
+    // Create offer requesting both audio and video using legacy constraints
+    const offer = await pc.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
+    });
     await pc.setLocalDescription(offer);
     await waitForIceGathering(pc);
 
