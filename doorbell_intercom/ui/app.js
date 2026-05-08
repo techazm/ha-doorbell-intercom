@@ -273,8 +273,9 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     await pc.setLocalDescription(offer);
     await waitForIceGathering(pc);
 
-    const webrtcUrl = `${go2rtcUrl.replace(/\/+$/, '')}/api/webrtc?src=${encodeURIComponent(streamName)}`;
-    console.log('📤 POST to:', webrtcUrl);
+    // Use server proxy to avoid CORS + ingress isolation issues
+    const webrtcUrl = `${apiBase}/api/webrtc-proxy/${encodeURIComponent(streamName)}`;
+    console.log('📤 POST SDP to server proxy:', webrtcUrl);
     
     const resp = await fetch(webrtcUrl, {
       method: 'POST',
@@ -282,18 +283,23 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
       body: pc.localDescription.sdp
     });
     
-    console.log('📥 go2rtc response:', resp.status, resp.statusText);
+    console.log('📥 server response:', resp.status, resp.statusText);
+    
+    let sdp;
+    try {
+      sdp = await resp.text();
+    } catch (e) {
+      throw new Error(`Failed to read response body: ${e.message}`);
+    }
     
     if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`go2rtc HTTP ${resp.status}: ${text.substring(0, 100)}`);
+      throw new Error(`Server HTTP ${resp.status}: ${sdp.substring(0, 100)}`);
     }
-
-    const sdp = await resp.text();
-    if (!sdp || sdp.length < 10) throw new Error('Empty SDP response from go2rtc');
+    
+    if (!sdp || sdp.length < 10) throw new Error('Empty SDP response from server');
     
     await pc.setRemoteDescription({ type: 'answer', sdp });
-    console.log('✅ go2rtc WebRTC answer accepted!');
+    console.log('✅ WebRTC answer accepted from go2rtc!');
     el.callStatusTxt.textContent = 'Live';
     
     // Timeout fallback: if connection fails within 15 seconds, fall back to snapshot
@@ -307,7 +313,8 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     }, 15000);
 
   } catch (e) {
-    console.error('❌ go2rtc WebRTC failed:', e.message);
+    console.error('❌ WebRTC failed:', e.message);
+    el.callStatusTxt.textContent = 'Live (snapshot mode)';
     startSnapshotFallback(state.pendingCamera);
   }
 }
@@ -421,8 +428,7 @@ function stopSnapshotFallback() {
 function buildPeerConnection() {
   return new RTCPeerConnection({
     iceServers: [
-      // For local-only networks, use host candidates only (no public STUN)
-      // This allows WebRTC to work within private networks
+      { urls: 'stun:stun.l.google.com:19302' },  // Same STUN as Frigate go2rtc
     ],
     iceTransportPolicy: 'all', // Allow all candidates (host, srflx, prflx, relay)
   });
