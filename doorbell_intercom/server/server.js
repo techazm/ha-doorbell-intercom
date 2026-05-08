@@ -106,17 +106,25 @@ app.get('/api/go2rtc-stream/:streamName', async (req, res) => {
   if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
   
   const streamName = req.params.streamName;
-  const format = req.query.format || 'mp4';
+  const format = req.query.format || 'generic';
   
-  const formatMap = {
-    'mp4': 'stream.mp4',
-    'mkv': 'stream.mkv',
-    'webm': 'stream.webm',
-    'mjpeg': 'stream.mjpeg',
-  };
-  
-  const endpoint = formatMap[format] || 'stream.mjpeg';
-  const url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/${endpoint}?src=${encodeURIComponent(streamName)}`;
+  // If 'generic' or no format specified, use /api/stream to let go2rtc auto-select
+  let url;
+  if (format === 'generic') {
+    url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/stream?src=${encodeURIComponent(streamName)}`;
+    console.log(`[STREAM] Using generic auto-select endpoint: ${url}`);
+  } else {
+    const formatMap = {
+      'mp4': 'stream.mp4',
+      'mkv': 'stream.mkv',
+      'webm': 'stream.webm',
+      'mjpeg': 'stream.mjpeg',
+    };
+    
+    const endpoint = formatMap[format] || 'stream.mjpeg';
+    url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/${endpoint}?src=${encodeURIComponent(streamName)}`;
+    console.log(`[STREAM] Requesting ${format} format: ${url}`);
+  }
   
   try {
     console.log(`[STREAM] Requesting ${format} from go2rtc: ${url}`);

@@ -411,11 +411,12 @@ function startGo2rtcMjpeg(streamName) {
   el.callStatusTxt.textContent = 'Live (streaming)';
   
   // Try formats in order of likelihood to have audio
-  // 1. MP4 (audio+video)
-  // 2. MKV (audio+video) 
-  // 3. WebM (audio+video)
-  // 4. MJPEG (video-only fallback)
-  const formats = ['mp4', 'mkv', 'webm', 'mjpeg'];
+  // 1. generic - let go2rtc auto-select best format (may include audio)
+  // 2. MP4 (audio+video, but go2rtc may not encode audio)
+  // 3. MKV (audio+video, better audio support)
+  // 4. WebM (audio+video)
+  // 5. MJPEG (video-only fallback)
+  const formats = ['generic', 'mp4', 'mkv', 'webm', 'mjpeg'];
   tryStreamFormat(streamName, formats, 0);
 }
 
@@ -427,7 +428,10 @@ function tryStreamFormat(streamName, formats, index) {
   }
   
   const format = formats[index];
-  const url = `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}?format=${format}`;
+  // For 'generic', don't specify a format - let go2rtc choose best
+  const url = format === 'generic' 
+    ? `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}`
+    : `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}?format=${format}`;
   console.log(`🎬 Trying format ${index + 1}/${formats.length}: ${format}`);
   
   el.callVideo.src = url;
