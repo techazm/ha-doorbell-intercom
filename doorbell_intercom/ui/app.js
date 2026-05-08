@@ -257,13 +257,16 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     };
 
     await attachMicrophone(pc);
-    pc.addTransceiver('video', { direction: 'recvonly' });
+    pc.addTransceiver('audio', { direction: 'recvonly' });  // RECEIVE audio from go2rtc
+    pc.addTransceiver('video', { direction: 'recvonly' });  // RECEIVE video from go2rtc
 
     pc.ontrack = (e) => {
       console.log('📹 Got track:', e.track.kind, 'ready state:', e.track.readyState);
       if (e.track.kind === 'video') {
         console.log('📺 Video track ready, stream count:', e.streams.length);
         showVideoStream(e.streams[0] || new MediaStream([e.track]));
+      } else if (e.track.kind === 'audio') {
+        console.log('🔊 Audio track ready!');
       }
     };
 
