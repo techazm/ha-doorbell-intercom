@@ -320,6 +320,16 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     await pc.setRemoteDescription({ type: 'answer', sdp });
     console.log('✅ WebRTC answer accepted from go2rtc!');
     el.callStatusTxt.textContent = 'Live';
+    
+    // Check for audio after 5 seconds - if still no audio, fall back to MJPEG
+    setTimeout(() => {
+      const hasAudio = combinedStream.getAudioTracks().length > 0;
+      if (!hasAudio && pc.connectionState === 'connected') {
+        console.warn('⚠️ WebRTC has video but NO audio - falling back to MJPEG');
+        el.callStatusTxt.textContent = 'Live (MJPEG with audio)';
+        startGo2rtcMjpeg(streamName);
+      }
+    }, 5000);
 
   } catch (e) {
     console.error('❌ WebRTC failed:', e.message);
@@ -406,6 +416,41 @@ function startMjpegFallback() {
   if (!entity) { el.callStatusTxt.textContent = 'No video available'; return; }
   console.log('Using snapshot mode');
   startSnapshotFallback(entity);
+}
+
+// ── go2rtc MJPEG stream (video + audio, low latency) ──────────────────────────
+function startGo2rtcMjpeg(streamName) {
+  if (!streamName) {
+    console.error('❌ No stream name for MJPEG');
+    return;
+  }
+  
+  stopSnapshotFallback();
+  mediaReady = false;
+  state.hasWebRTC = false;
+  
+  el.callVideo.classList.add('hidden');
+  el.callNoVideo.classList.remove('hidden');
+  el.callMjpeg.classList.remove('hidden');
+  
+  // Use server proxy to get MJPEG with audio
+  const url = `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}`;
+  console.log('🎬 Starting MJPEG stream (with audio):', url);
+  el.callMjpeg.src = url;
+  el.callStatusTxt.textContent = 'Live (MJPEG with audio)';
+  
+  // Handle errors
+  el.callMjpeg.onerror = () => {
+    console.error('❌ MJPEG stream failed');
+    el.callStatusTxt.textContent = 'Stream error';
+  };
+  
+  // Monitor when stream loads
+  el.callMjpeg.onload = () => {
+    mediaReady = true;
+    el.callNoVideo.classList.add('hidden');
+    console.log('✅ MJPEG stream loaded');
+  };
 }
 
 function startSnapshotFallback(entity) {
