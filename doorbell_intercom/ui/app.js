@@ -607,21 +607,60 @@ function startMjpegFallback() {
 }
 
 // ── In-call controls ──────────────────────────────────────────────────────────
-document.getElementById('btn-mute').addEventListener('click', () => {
-  if (!state.localStream) {
-    // Microphone was blocked in this context (HA ingress iframe).
-    // Open the same page in a new top-level tab where getUserMedia works.
-    console.log('⚠️ Mic unavailable here — opening in new tab for two-way audio');
-    window.open(window.location.href, '_blank');
+document.getElementById('btn-mute').addEventListener('click', async () => {
+  // ── Case 1: mic already acquired — toggle mute ────────────────────────────
+  if (state.localStream) {
+    state.muted = !state.muted;
+    state.localStream.getAudioTracks().forEach(t => { t.enabled = !state.muted; });
+    el.iconMic.classList.toggle('hidden',    state.muted);
+    el.iconMicOff.classList.toggle('hidden', !state.muted);
+    document.getElementById('btn-mute').classList.toggle('muted', state.muted);
+    console.log('Mic toggled:', state.muted ? 'muted' : 'unmuted');
     return;
   }
-  state.muted = !state.muted;
-  state.localStream.getAudioTracks().forEach(t => { t.enabled = !state.muted; });
-  el.iconMic.classList.toggle('hidden',    state.muted);
-  el.iconMicOff.classList.toggle('hidden', !state.muted);
-  document.getElementById('btn-mute').classList.toggle('muted', state.muted);
-  console.log('Mic toggled:', state.muted ? 'muted' : 'unmuted');
+
+  // ── Case 2: no mic yet — try to acquire it now ───────────────────────────
+  // getUserMedia requires HTTPS. On plain HTTP (local IP) navigator.mediaDevices
+  // is undefined. Accessing via a secure external URL (e.g. Cloudflare tunnel)
+  // will allow this to succeed.
+  if (!navigator?.mediaDevices?.getUserMedia) {
+    flashStatus('Mic needs HTTPS — access via your secure external URL');
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    state.localStream = stream;
+    state.muted = false;
+
+    // Add the mic track to the active peer connection if one exists
+    if (state.pc && state.pc.connectionState === 'connected') {
+      stream.getAudioTracks().forEach(t => state.pc.addTrack(t, stream));
+      console.log('🎤 Mic acquired and added to active WebRTC connection');
+    } else {
+      console.log('🎤 Mic acquired (will be used on next call)');
+    }
+
+    // Update button to show mic is now active
+    const btn = document.getElementById('btn-mute');
+    btn.disabled = false;
+    btn.title = 'Toggle microphone';
+    btn.classList.remove('muted');
+    el.iconMic.classList.remove('hidden');
+    el.iconMicOff.classList.add('hidden');
+    flashStatus('Microphone active');
+  } catch (e) {
+    console.warn('⚠️ Mic permission denied:', e.message);
+    flashStatus('Mic permission denied');
+  }
 });
+
+// Brief non-disruptive status flash that reverts after 3 seconds
+function flashStatus(msg) {
+  const prev = el.callStatusTxt.textContent;
+  el.callStatusTxt.textContent = msg;
+  setTimeout(() => { el.callStatusTxt.textContent = prev; }, 3000);
+}
 
 document.getElementById('btn-speaker').addEventListener('click', () => {
   state.speakerMuted = !state.speakerMuted;
