@@ -502,8 +502,14 @@ function buildPeerConnection() {
 
 async function attachMicrophone(pc) {
   try {
+    // Reuse an already-acquired stream (e.g. from tapping Speak before/during call)
+    if (state.localStream && state.localStream.getAudioTracks().length > 0) {
+      state.localStream.getAudioTracks().forEach(t => pc.addTrack(t, state.localStream));
+      console.log('🎤 Microphone reused from existing stream');
+      return;
+    }
     if (!navigator?.mediaDevices?.getUserMedia) {
-      console.warn('⚠️ getUserMedia not available (ingress context)');
+      console.warn('⚠️ getUserMedia not available (HTTP context — need HTTPS for mic)');
       pc.addTransceiver('audio', { direction: 'recvonly' });
       return;
     }
@@ -511,7 +517,7 @@ async function attachMicrophone(pc) {
     state.localStream.getAudioTracks().forEach(t => pc.addTrack(t, state.localStream));
     console.log('🎤 Microphone attached');
   } catch (e) {
-    // Microphone denied or unavailable — video-only call
+    // Microphone denied or unavailable — receive-only call
     console.warn('⚠️ Microphone unavailable:', e.message);
     pc.addTransceiver('audio', { direction: 'recvonly' });
   }
@@ -633,14 +639,6 @@ document.getElementById('btn-mute').addEventListener('click', async () => {
     state.localStream = stream;
     state.muted = false;
 
-    // Add the mic track to the active peer connection if one exists
-    if (state.pc && state.pc.connectionState === 'connected') {
-      stream.getAudioTracks().forEach(t => state.pc.addTrack(t, stream));
-      console.log('🎤 Mic acquired and added to active WebRTC connection');
-    } else {
-      console.log('🎤 Mic acquired (will be used on next call)');
-    }
-
     // Update button to show mic is now active
     const btn = document.getElementById('btn-mute');
     btn.disabled = false;
@@ -648,7 +646,21 @@ document.getElementById('btn-mute').addEventListener('click', async () => {
     btn.classList.remove('muted');
     el.iconMic.classList.remove('hidden');
     el.iconMicOff.classList.add('hidden');
-    flashStatus('Microphone active');
+
+    // If a go2rtc WebRTC call is active, the original SDP offer was made without
+    // a mic track (recvonly), so go2rtc set up no receive channel. Simply adding
+    // the track via addTrack() won't help. We must restart the WebRTC connection
+    // so the new SDP offer includes the mic track (sendrecv audio).
+    if (state.pc && state.pendingGo2rtc && state.config?.go2rtc_url) {
+      console.log('🎤 Restarting WebRTC to include mic in SDP offer...');
+      const oldPc = state.pc;
+      state.pc = null;
+      oldPc.close();
+      flashStatus('Reconnecting with mic...');
+      await startGo2rtcWebRTC(state.pendingGo2rtc, state.config.go2rtc_url);
+    } else {
+      flashStatus('Mic active — will be used on next call');
+    }
   } catch (e) {
     console.warn('⚠️ Mic permission denied:', e.message);
     flashStatus('Mic permission denied');
