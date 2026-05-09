@@ -327,16 +327,22 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     await pc.setRemoteDescription({ type: 'answer', sdp });
     console.log('✅ WebRTC answer accepted from go2rtc!');
     el.callStatusTxt.textContent = 'Live';
-    
-    // Check for audio after 5 seconds - if still no audio, fall back to MJPEG
+
+    // Diagnostic only — do NOT fall back to MJPEG if video is working.
+    // If there is no audio track, it means go2rtc is not encoding audio
+    // (camera sends G.711 which needs ffmpeg re-encoding — see Frigate config).
     setTimeout(() => {
-      const hasAudio = combinedStream.getAudioTracks().length > 0;
-      if (!hasAudio && pc.connectionState === 'connected') {
-        console.warn('⚠️ WebRTC has video but NO audio - falling back to MJPEG');
-        el.callStatusTxt.textContent = 'Live (MJPEG with audio)';
-        startGo2rtcMjpeg(streamName);
+      const audioTracks = combinedStream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        console.warn('⚠️ WebRTC: no audio track from go2rtc. ' +
+          'Fix: change your Frigate go2rtc stream source to ' +
+          'ffmpeg:rtsp://...#video=copy#audio=aac');
+        el.callStatusTxt.textContent = 'Live (no audio — check go2rtc)';
+      } else {
+        console.log('\u2705 WebRTC audio track active:', audioTracks[0].label || audioTracks[0].kind);
+        el.callStatusTxt.textContent = 'Live';
       }
-    }, 5000);
+    }, 3000);
 
   } catch (e) {
     console.error('❌ WebRTC failed:', e.message);
@@ -399,91 +405,61 @@ async function applyWebRTCAnswer(msg) {
   }
 }
 
-// ── go2rtc MJPEG stream with audio fallback chain ────────────────────────────
+// ── go2rtc HTTP streaming fallback (used only when WebRTC is unavailable) ─────
+// Tries formats in order: generic → mjpeg. Stops at the first format that
+// successfully plays. NOTE: el.callVideo.audioTracks is NOT supported in
+// Chrome, so we do NOT use it for audio detection — the browser will play
+// audio automatically if it is present in the stream.
 function startGo2rtcMjpeg(streamName) {
-  if (!streamName) {
-    console.error('❌ No stream name for MJPEG');
-    return;
-  }
-  
+  if (!streamName) { console.error('❌ No stream name for HTTP fallback'); return; }
+
   stopSnapshotFallback();
-  mediaReady = false;
+  mediaReady   = false;
   state.hasWebRTC = false;
-  
+
   el.callVideo.classList.remove('hidden');
   el.callNoVideo.classList.add('hidden');
   el.callMjpeg.classList.add('hidden');
-  
-  el.callVideo.muted = false;  // CRITICAL: must be false for audio in streaming
+  el.callVideo.muted = false;
   el.callStatusTxt.textContent = 'Live (streaming)';
-  
-  // Try formats in order of likelihood to have audio
-  // 1. generic - let go2rtc auto-select best format (may include audio)
-  // 2. MP4 (audio+video, but go2rtc may not encode audio)
-  // 3. MKV (audio+video, better audio support)
-  // 4. WebM (audio+video)
-  // 5. MJPEG (video-only fallback)
-  const formats = ['generic', 'mp4', 'mkv', 'webm', 'mjpeg'];
-  tryStreamFormat(streamName, formats, 0);
+
+  // generic: let go2rtc pick the best container (includes audio when available)
+  // mjpeg:   universal video-only fallback
+  tryStreamFormat(streamName, ['generic', 'mjpeg'], 0);
 }
 
 function tryStreamFormat(streamName, formats, index) {
   if (index >= formats.length) {
-    console.error('❌ All stream formats exhausted');
-    el.callStatusTxt.textContent = 'No stream available';
+    console.error('❌ All stream formats failed — no playable stream from go2rtc');
+    el.callStatusTxt.textContent = 'Stream unavailable';
     return;
   }
-  
+
   const format = formats[index];
-  // For 'generic', don't specify a format - let go2rtc choose best
-  const url = format === 'generic' 
+  const url = format === 'generic'
     ? `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}`
     : `${apiBase}/api/go2rtc-stream/${encodeURIComponent(streamName)}?format=${format}`;
-  console.log(`🎬 Trying format ${index + 1}/${formats.length}: ${format}`);
-  
+  console.log(`🎬 Trying stream format ${index + 1}/${formats.length}: ${format}`);
+
   el.callVideo.src = url;
-  
-  // Set up one-time handlers for this attempt
+
   const onCanPlay = () => {
-    console.log(`✅ Format ${format} working! Video can play`);
-    el.callVideo.removeEventListener('canplay', onCanPlay);
-    el.callVideo.removeEventListener('error', onError);
-    
-    // Check audio after a delay
-    setTimeout(() => {
-      const audioTracks = el.callVideo.audioTracks ? el.callVideo.audioTracks.length : 0;
-      console.log(`🔊 Format ${format} has ${audioTracks} audio track(s)`);
-      
-      if (audioTracks > 0) {
-        // FOUND AUDIO! Stop trying formats
-        mediaReady = true;
-        console.log(`✅ SUCCESS: ${format} has audio - using this format`);
-        el.callStatusTxt.textContent = `Live (${format.toUpperCase()} with audio)`;
-      } else {
-        // NO AUDIO - try next format
-        console.log(`⚠️ ${format} has no audio, trying next format...`);
-        tryStreamFormat(streamName, formats, index + 1);
-      }
-    }, 300);
+    // First format that plays wins — accept it regardless of whether audio is
+    // present (browser plays audio automatically if the stream contains it).
+    console.log(`\u2705 Format ${format} playable — using it`);
+    mediaReady = true;
+    el.callVideo.muted = false;
+    el.callStatusTxt.textContent = 'Live (streaming)';
   };
-  
+
   const onError = () => {
-    console.warn(`⚠️ Format ${format} failed, trying next...`);
-    el.callVideo.removeEventListener('canplay', onCanPlay);
-    el.callVideo.removeEventListener('error', onError);
+    console.warn(`\u26a0\ufe0f Format ${format} failed, trying next...`);
     tryStreamFormat(streamName, formats, index + 1);
   };
-  
+
   el.callVideo.addEventListener('canplay', onCanPlay, { once: true });
-  el.callVideo.addEventListener('error', onError, { once: true });
-  
-  // Force play
-  const playPromise = el.callVideo.play();
-  if (playPromise !== undefined) {
-    playPromise.catch(e => {
-      console.warn(`⚠️ Play failed for ${format}:`, e.message);
-    });
-  }
+  el.callVideo.addEventListener('error',   onError,   { once: true });
+  el.callVideo.play().catch(e => console.warn(`\u26a0\ufe0f Play failed for ${format}:`, e.message));
 }
 
 function startSnapshotFallback(entity) {
