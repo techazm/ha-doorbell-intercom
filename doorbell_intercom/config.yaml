@@ -1,5 +1,5 @@
 name: Doorbell Intercom
-version: "1.0.58"
+version: "1.0.59"
 slug: doorbell_intercom
 description: >-
   Universal video intercom for any Home Assistant connected doorbell.
@@ -14,6 +14,10 @@ arch:
 init: false
 ingress: true
 ingress_port: 8765
+ports:
+  8766/tcp: 8766
+ports_description:
+  8766/tcp: HTTPS endpoint for local microphone access (accept self-signed cert once)
 panel_icon: mdi:doorbell-video
 panel_title: Doorbell Intercom
 homeassistant: "2023.0.0"

@@ -2,8 +2,9 @@
 
 const express = require('express');
 const WebSocket = require('ws');
-const http = require('http');
-const fs = require('fs');
+const http  = require('http');
+const https = require('https');
+const fs   = require('fs');
 const path = require('path');
 const fetch = require('node-fetch');
 
@@ -581,7 +582,7 @@ wss.on('connection', (ws) => {
   ws.on('error', (err) => console.error('Browser WS error:', err.message));
 });
 
-// ── Start ─────────────────────────────────────────────────────────────────────
+// ── Start ───────────────────────────────────────────────────────────────────
 
 connectToHA();
 
@@ -590,3 +591,25 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`Doorbell Intercom listening on port ${PORT}`);
   console.log(`Doorbells: ${names}`);
 });
+
+// ── HTTPS server for local mic access ───────────────────────────────────────────
+// Serves the same Express app over TLS on port 8766 using the self-signed
+// certificate baked into the Docker image at build time. Once the user
+// accepts the cert warning in their browser they have permanent HTTPS access,
+// which allows navigator.mediaDevices.getUserMedia (microphone) to work.
+try {
+  const sslOpts = {
+    key:  fs.readFileSync(path.join(__dirname, 'server.key')),
+    cert: fs.readFileSync(path.join(__dirname, 'server.crt')),
+  };
+  const HTTPS_PORT = 8766;
+  const httpsServer = https.createServer(sslOpts, app);
+  httpsServer.on('upgrade', (req, socket, head) => {
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  });
+  httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
+    console.log(`HTTPS (mic) server listening on port ${HTTPS_PORT}`);
+  });
+} catch (e) {
+  console.warn('[HTTPS] Could not start HTTPS server (cert missing?):', e.message);
+}

@@ -624,7 +624,13 @@ document.getElementById('btn-mute').addEventListener('click', async () => {
   // is undefined. Accessing via a secure external URL (e.g. Cloudflare tunnel)
   // will allow this to succeed.
   if (!navigator?.mediaDevices?.getUserMedia) {
-    flashStatus('Mic needs HTTPS — access via your secure external URL');
+    // Show the direct HTTPS URL for local mic access (port 8766, self-signed cert)
+    const httpsUrl = `https://${location.hostname}:8766`;
+    const prev = el.callStatusTxt.textContent;
+    el.callStatusTxt.innerHTML =
+      `Mic: <a href="${httpsUrl}" target="_blank" rel="noopener"
+        style="color:#60a5fa;text-decoration:underline">open ${httpsUrl}</a>`;
+    setTimeout(() => { el.callStatusTxt.textContent = prev; }, 8000);
     return;
   }
 
