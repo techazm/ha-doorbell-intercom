@@ -284,6 +284,27 @@ let haWs = null;
 let haMsgId = 1;
 const haPending = new Map(); // id → { resolve, reject, timer }
 let haWebRtcSupported = false;
+let addonSlug = 'doorbell_intercom'; // overwritten after HA auth
+
+// Fetch the real add-on slug from Supervisor so notification URIs work
+// regardless of the repository hash prefix (e.g. 2ed00683_doorbell_intercom)
+async function fetchAddonSlug() {
+  try {
+    const resp = await fetch('http://supervisor/addons/self/info', {
+      headers: { Authorization: `Bearer ${HA_TOKEN}` },
+    });
+    if (resp.ok) {
+      const json = await resp.json();
+      const slug = json?.data?.slug;
+      if (slug) {
+        addonSlug = slug;
+        console.log(`[ADDON] Slug resolved: ${addonSlug}`);
+      }
+    }
+  } catch (e) {
+    console.warn('[ADDON] Could not fetch slug from Supervisor:', e.message);
+  }
+}
 
 function connectToHA() {
   console.log('Connecting to HA WebSocket...');
@@ -302,6 +323,7 @@ function connectToHA() {
 
       case 'auth_ok':
         console.log('Authenticated with HA — subscribing to events');
+        fetchAddonSlug();
         haSubscribeEvents();
         break;
 
@@ -400,7 +422,7 @@ function onRing(doorbell) {
 
   activeRings.set(doorbell.name, { ringMsg, dismissAction });
   broadcast(ringMsg);
-  sendHaNotification(doorbell, dismissAction);
+  sendHaNotification(doorbell);
 
   const timeoutMs = (cfg.ring_timeout || 60) * 1000;
   ringTimers.set(doorbell.name, setTimeout(() => {
@@ -419,55 +441,100 @@ function clearRingTimer(doorbellName) {
 }
 
 // Send a Home Assistant mobile push notification with snapshot + action buttons
-async function sendHaNotification(doorbell, dismissAction) {
+async function sendHaNotification(doorbell) {
   if (!cfg.notify_target) return;
   const dotIdx = cfg.notify_target.indexOf('.');
   const domain  = dotIdx >= 0 ? cfg.notify_target.slice(0, dotIdx) : 'notify';
   const service = dotIdx >= 0 ? cfg.notify_target.slice(dotIdx + 1) : cfg.notify_target;
 
+  const panelUri = `homeassistant://navigate/hassio/ingress/${addonSlug}`;
+
+  const actions = [
+    {
+      action: 'URI',
+      title: 'Answer',
+      uri: panelUri,
+    },
+  ];
+
+  // Add Unlock button if this doorbell has a lock entity configured
+  if (doorbell.lock_entity) {
+    actions.push({ action: 'DOORBELL_UNLOCK', title: 'Unlock' });
+  }
+
+  actions.push({ action: 'DOORBELL_DISMISS', title: 'Dismiss' });
+
   const data = {
     title: `\uD83D\uDD14 ${doorbell.name}`,
     message: 'Someone is at the door',
     data: {
-      actions: [
-        {
-          action: 'URI',
-          title: 'Answer',
-          // Opens the HA companion app directly to this add-on's ingress panel
-          uri: 'homeassistant://navigate/hassio/ingress/doorbell_intercom',
-        },
-        {
-          action: dismissAction,
-          title: 'Dismiss',
-        },
-      ],
+      notification_id: 'doorbell_intercom',
+      sticky: 'true',
+      ttl: 0,
+      priority: 'high',
+      channel: 'doorbell',
+      // Tapping the notification body opens the panel (Android)
+      clickAction: panelUri,
+      // iOS uses url
+      url: panelUri,
+      actions,
     },
   };
 
-  // Attach camera snapshot — companion apps use entity_id to fetch the image
+  // Camera snapshot — companion apps fetch via entity_id
   if (doorbell.camera_entity) {
     data.data.entity_id = doorbell.camera_entity;
+    data.data.image = `/api/camera_proxy/${doorbell.camera_entity}`;
   }
 
   try {
     await callHaService(domain, service, data);
-    console.log(`[NOTIFY] Sent HA notification via ${cfg.notify_target}`);
+    console.log(`[NOTIFY] Sent notification via ${cfg.notify_target} (slug: ${addonSlug})`);
   } catch (e) {
     console.error('[NOTIFY] Failed to send HA notification:', e.message);
   }
 }
 
-// Handle mobile notification action events (Dismiss button from phone)
+// Handle mobile notification action events from phone buttons
 function handleNotificationAction(data) {
   const action = data?.action || '';
-  for (const [name, { dismissAction }] of activeRings) {
-    if (dismissAction === action) {
-      console.log(`[NOTIFY] Mobile dismissed ring for "${name}"`);
-      clearRingTimer(name);
-      broadcast({ type: 'doorbell_timeout', doorbell: name });
-      return;
+
+  // ── Dismiss (standard name + legacy dismiss_* fallback) ──────────────────────
+  if (action === 'DOORBELL_DISMISS' || action.startsWith('dismiss_')) {
+    // If legacy dismiss_* format, match by action name; otherwise dismiss first active ring
+    for (const [name, { dismissAction }] of activeRings) {
+      if (action === 'DOORBELL_DISMISS' || dismissAction === action) {
+        console.log(`[NOTIFY] Mobile dismissed ring for "${name}"`);
+        clearRingTimer(name);
+        broadcast({ type: 'doorbell_timeout', doorbell: name });
+        return;
+      }
     }
+    return;
   }
+
+  // ── Unlock door ──────────────────────────────────────────────────
+  if (action === 'DOORBELL_UNLOCK') {
+    // Find the lock entity from an active ring, or fall back to any configured doorbell
+    let lockEntity = null;
+    for (const [name] of activeRings) {
+      const db = (cfg.doorbells || []).find(d => d.name === name);
+      if (db?.lock_entity) { lockEntity = db.lock_entity; break; }
+    }
+    if (!lockEntity) {
+      const db = (cfg.doorbells || []).find(d => d.lock_entity);
+      lockEntity = db?.lock_entity;
+    }
+    if (lockEntity) {
+      callHaService('lock', 'unlock', { entity_id: lockEntity });
+      console.log(`[NOTIFY] Unlocking ${lockEntity} from doorbell notification`);
+    } else {
+      console.warn('[NOTIFY] DOORBELL_UNLOCK received but no lock_entity configured');
+    }
+    return;
+  }
+
+  // DOORBELL_ANSWER — phone app opens the URI itself, no server action needed
 }
 
 // ── Browser WebSocket clients ─────────────────────────────────────────────────
