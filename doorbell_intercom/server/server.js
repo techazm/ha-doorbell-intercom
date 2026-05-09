@@ -191,6 +191,32 @@ app.get('/api/go2rtc-audio/:streamName', async (req, res) => {
   });
 });
 
+// Proxy go2rtc stream info — returns what tracks (video/audio) go2rtc sees
+// from the source camera. Used for audio diagnostics.
+app.get('/api/go2rtc-stream-info/:streamName', async (req, res) => {
+  if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
+  const base = cfg.go2rtc_url.replace(/\/+$/, '');
+  try {
+    const resp = await fetch(`${base}/api/streams`);
+    if (!resp.ok) return res.status(resp.status).json({ error: `go2rtc /api/streams returned ${resp.status}` });
+    const all = await resp.json();
+    const stream = all[req.params.streamName];
+    if (!stream) return res.status(404).json({ error: 'Stream not found in go2rtc', available: Object.keys(all) });
+
+    // Collect all media tracks from all producers
+    const producers = stream.producers || [];
+    const tracks = producers.flatMap(p =>
+      (p.medias || []).map(m => ({ kind: m.kind, codec: m.codec || '?', producer: p.url || '?' }))
+    );
+    const hasVideo = tracks.some(t => t.kind === 'video');
+    const hasAudio = tracks.some(t => t.kind === 'audio');
+
+    res.json({ stream: req.params.streamName, hasVideo, hasAudio, tracks });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Proxy go2rtc WebRTC SDP signaling (avoids CORS from browser to go2rtc)
 app.post('/api/webrtc-proxy/:streamName', async (req, res) => {
   if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
