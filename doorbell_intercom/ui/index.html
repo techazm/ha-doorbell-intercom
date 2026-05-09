@@ -74,7 +74,7 @@
     <div class="call-wrap">
 
       <!-- Video layer -->
-      <video id="call-video" class="call-video" autoplay playsinline muted="false"></video>
+      <video id="call-video" class="call-video" autoplay playsinline></video>
       <img  id="call-mjpeg" class="call-video hidden" alt="Camera stream" draggable="false">
       <div  id="call-no-video" class="call-no-video hidden">
         <svg viewBox="0 0 24 24" fill="currentColor">
@@ -95,7 +95,7 @@
       <!-- Bottom controls -->
       <div class="call-controls">
         <div class="ctrl-btn-wrap">
-          <button id="btn-mute" class="btn-ctrl" aria-label="Mute microphone">
+          <button id="btn-mute" class="btn-ctrl" aria-label="Speak / toggle microphone">
             <svg id="icon-mic" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3m7 9c0 3.53-2.61 6.44-6 6.93V21h-2v-3.07c-3.39-.49-6-3.4-6-6.93h2a5 5 0 0 0 10 0z"/>
             </svg>
@@ -103,25 +103,25 @@
               <path d="M19 11c0 .56-.08 1.1-.22 1.61L17.2 11l.8-.79V5a3 3 0 0 0-6 0v.18l-2-2V5a5 5 0 0 1 10 0v6m-7 10v-3.07c-3.39-.49-6-3.4-6-6.93h2a5 5 0 0 0 8.68 3.47l1.42 1.42A6.97 6.97 0 0 1 13 17.93V21zm-7.27-3.19-1.42-1.42 18-18 1.41 1.41z"/>
             </svg>
           </button>
-          <span class="ctrl-label">Mute</span>
+          <span class="ctrl-label">Speak</span>
         </div>
 
         <div class="ctrl-btn-wrap">
-          <button id="btn-hangup" class="btn-circle btn-red" aria-label="Hang up">
+          <button id="btn-hangup" class="btn-circle btn-red" aria-label="End call">
             <svg viewBox="0 0 24 24" fill="currentColor">
               <path d="M20.84 22.73 22.73 20.84 3.16 1.27 1.27 3.16l4.5 4.5C4.63 8.42 4 9.64 4 11c0 1.5.66 2.87 1.71 3.82L12 21.1l.07-.07 3.73 3.73 5.04-2.03zM12 2C8.53 2 5.5 3.55 3.47 6l1.5 1.5C6.54 5.64 9.1 4 12 4c5.52 0 10 4.48 10 10 0 2.9-1.64 5.46-4 6.84"/>
             </svg>
           </button>
-          <span class="ctrl-label">Hang up</span>
+          <span class="ctrl-label">End</span>
         </div>
 
         <div class="ctrl-btn-wrap">
-          <button id="btn-speaker" class="btn-ctrl active" aria-label="Speaker">
+          <button id="btn-speaker" class="btn-ctrl active" aria-label="Mute speaker">
             <svg viewBox="0 0 24 24" fill="currentColor">
               <path d="M3 9v6h4l5 5V4L7 9zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02M14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77"/>
             </svg>
           </button>
-          <span class="ctrl-label">Speaker</span>
+          <span class="ctrl-label">Mute</span>
         </div>
       </div>
 

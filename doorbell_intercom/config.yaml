@@ -23,6 +23,7 @@ options:
   go2rtc_url: ""
   doorbells: []
   ring_timeout: 60
+  notify_target: ""
 schema:
   go2rtc_url: str?
   doorbells:
@@ -32,3 +33,4 @@ schema:
       go2rtc_stream: str?
       speaker_entity: str?
   ring_timeout: int
+  notify_target: str?

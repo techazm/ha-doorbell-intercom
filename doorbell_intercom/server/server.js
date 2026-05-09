@@ -295,6 +295,8 @@ function connectToHA() {
       case 'event':
         if (msg.event?.event_type === 'state_changed') {
           handleStateChanged(msg.event.data);
+        } else if (msg.event?.event_type === 'mobile_app_notification_action') {
+          handleNotificationAction(msg.event.data);
         }
         break;
     }
@@ -332,6 +334,12 @@ function haSubscribeEvents() {
     type: 'subscribe_events',
     event_type: 'state_changed',
   }));
+  // Listen for Dismiss taps on mobile notifications
+  haWs.send(JSON.stringify({
+    id: haMsgId++,
+    type: 'subscribe_events',
+    event_type: 'mobile_app_notification_action',
+  }));
 }
 
 function handleStateChanged({ entity_id, new_state, old_state }) {
@@ -347,23 +355,30 @@ function handleStateChanged({ entity_id, new_state, old_state }) {
 
 // ── Call state ────────────────────────────────────────────────────────────────
 
-const ringTimers = new Map();
+const ringTimers  = new Map(); // name → timeout id
+const activeRings = new Map(); // name → { ringMsg, dismissAction }
 
 function onRing(doorbell) {
   // Reset any existing ring timer for this doorbell
   if (ringTimers.has(doorbell.name)) clearTimeout(ringTimers.get(doorbell.name));
 
-  broadcast({
+  const dismissAction = `dismiss_${doorbell.name.replace(/\W+/g, '_')}`;
+  const ringMsg = {
     type: 'doorbell_ring',
     doorbell: doorbell.name,
     camera_entity: doorbell.camera_entity,
     go2rtc_stream: doorbell.go2rtc_stream || null,
     speaker_entity: doorbell.speaker_entity || null,
-  });
+  };
+
+  activeRings.set(doorbell.name, { ringMsg, dismissAction });
+  broadcast(ringMsg);
+  sendHaNotification(doorbell, dismissAction);
 
   const timeoutMs = (cfg.ring_timeout || 60) * 1000;
   ringTimers.set(doorbell.name, setTimeout(() => {
     ringTimers.delete(doorbell.name);
+    activeRings.delete(doorbell.name);
     broadcast({ type: 'doorbell_timeout', doorbell: doorbell.name });
   }, timeoutMs));
 }
@@ -372,6 +387,59 @@ function clearRingTimer(doorbellName) {
   if (ringTimers.has(doorbellName)) {
     clearTimeout(ringTimers.get(doorbellName));
     ringTimers.delete(doorbellName);
+    activeRings.delete(doorbellName);
+  }
+}
+
+// Send a Home Assistant mobile push notification with snapshot + action buttons
+async function sendHaNotification(doorbell, dismissAction) {
+  if (!cfg.notify_target) return;
+  const dotIdx = cfg.notify_target.indexOf('.');
+  const domain  = dotIdx >= 0 ? cfg.notify_target.slice(0, dotIdx) : 'notify';
+  const service = dotIdx >= 0 ? cfg.notify_target.slice(dotIdx + 1) : cfg.notify_target;
+
+  const data = {
+    title: `\uD83D\uDD14 ${doorbell.name}`,
+    message: 'Someone is at the door',
+    data: {
+      actions: [
+        {
+          action: 'URI',
+          title: 'Answer',
+          // Opens the HA companion app directly to this add-on's ingress panel
+          uri: 'homeassistant://navigate/hassio/ingress/doorbell_intercom',
+        },
+        {
+          action: dismissAction,
+          title: 'Dismiss',
+        },
+      ],
+    },
+  };
+
+  // Attach camera snapshot — companion apps use entity_id to fetch the image
+  if (doorbell.camera_entity) {
+    data.data.entity_id = doorbell.camera_entity;
+  }
+
+  try {
+    await callHaService(domain, service, data);
+    console.log(`[NOTIFY] Sent HA notification via ${cfg.notify_target}`);
+  } catch (e) {
+    console.error('[NOTIFY] Failed to send HA notification:', e.message);
+  }
+}
+
+// Handle mobile notification action events (Dismiss button from phone)
+function handleNotificationAction(data) {
+  const action = data?.action || '';
+  for (const [name, { dismissAction }] of activeRings) {
+    if (dismissAction === action) {
+      console.log(`[NOTIFY] Mobile dismissed ring for "${name}"`);
+      clearRingTimer(name);
+      broadcast({ type: 'doorbell_timeout', doorbell: name });
+      return;
+    }
   }
 }
 
@@ -389,10 +457,14 @@ function broadcast(msg) {
 wss.on('connection', (ws) => {
   clients.add(ws);
 
-  // Send current config snapshot on connect
+  // Send current config snapshot on connect, including any currently active rings
+  // so clients opened after a ring event (e.g. after tapping a notification) can
+  // immediately show the ringing screen.
+  const active_rings = Array.from(activeRings.values()).map(({ ringMsg }) => ringMsg);
   ws.send(JSON.stringify({
     type: 'hello',
     doorbells: (cfg.doorbells || []).map(d => d.name),
+    active_rings,
   }));
 
   ws.on('message', async (raw) => {

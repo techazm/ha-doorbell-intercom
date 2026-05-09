@@ -126,7 +126,14 @@ function setConnStatus(up) {
 function handleMessage(msg) {
   switch (msg.type) {
     case 'hello':
-      loadConfig();
+      // Store the hello payload so we can replay active rings after config loads.
+      state._helloMsg = msg;
+      loadConfig().then(() => {
+        // If this client connected while a ring was already active (e.g. the user
+        // tapped the HA notification and the panel opened fresh), replay the ring
+        // so the ringing screen is shown immediately.
+        (state._helloMsg?.active_rings || []).forEach(ring => onDoorbellRing(ring));
+      });
       break;
 
     case 'doorbell_ring':
@@ -486,10 +493,12 @@ function startSnapshotFallback(entity) {
   el.callNoVideo.classList.remove('hidden');
   el.callMjpeg.classList.add('hidden');
   
-  // Only disable mic in snapshot mode (no microphone)
-  // Speaker button remains enabled for UI consistency
-  document.getElementById('btn-mute').disabled = true;
-  
+  // Speak button stays enabled (clicking opens new tab where mic works)
+  const btnMute = document.getElementById('btn-mute');
+  btnMute.disabled = false;
+  btnMute.title = 'Microphone blocked — tap to open in new tab';
+  btnMute.classList.add('muted');
+
   const tick = () => {
     el.callMjpeg.src = `${apiBase}/api/snapshot/${entity}?t=${Date.now()}`;
   };
@@ -563,43 +572,71 @@ function showVideoStream(stream) {
   el.callMjpeg.src = '';
   el.callMjpeg.classList.add('hidden');
   el.callVideo.srcObject = stream;
-  el.callVideo.muted     = state.speakerMuted;  // Start with user's preference (default: unmuted for audio)
   el.callVideo.classList.remove('hidden');
   el.callNoVideo.classList.add('hidden');
-  
-  console.log('🎬 Video stream ready, muted=' + el.callVideo.muted);
-  
-  // Force play (autoplay may be blocked in ingress iframe)
+
+  console.log('🎬 Video stream ready');
+
+  // Force play then explicitly unmute — autoplay policy allows unmuted playback
+  // when triggered by a user gesture (clicking Answer).
   const playPromise = el.callVideo.play();
   if (playPromise !== undefined) {
     playPromise
-      .then(() => console.log('📺 Video playing'))
-      .catch(e => console.error('⚠️ Play failed:', e.message));
+      .then(() => {
+        // Unmute only after play() resolves; some browsers reset muted on play()
+        el.callVideo.muted = state.speakerMuted; // default: false → audio on
+        console.log('📺 Video playing, muted=' + el.callVideo.muted);
+      })
+      .catch(e => {
+        // Autoplay blocked — fall back to muted play, speaker toggle still works
+        console.warn('⚠️ Unmuted autoplay blocked, starting muted:', e.message);
+        el.callVideo.muted = true;
+        el.callVideo.play().catch(() => {});
+      });
   }
-  
+
   // Monitor stream readiness
   el.callVideo.onloadedmetadata = () => {
     console.log('✅ Video metadata loaded, dimensions:', el.callVideo.videoWidth, 'x', el.callVideo.videoHeight);
   };
-  
-  el.callVideo.onplay = () => console.log('▶️ Video started playing');
+  el.callVideo.onplay  = () => console.log('▶️ Video started playing');
   el.callVideo.onpause = () => console.log('⏸️ Video paused');
-  
+
   // Clear the error event since we have a successful WebRTC connection
   el.callMjpeg.onerror = null;
-  
-  // Mic button: disabled in HA ingress (browser security blocks getUserMedia in iframe)
-  // Speaker button: enabled for received audio control
-  document.getElementById('btn-mute').disabled = true;
-  document.getElementById('btn-mute').title = 'Microphone not available in HA ingress context (browser security)';
+
+  // Speak button: enable only if mic was successfully captured; if not, clicking
+  // will open a new top-level tab where getUserMedia is allowed.
+  const micAvailable = !!(state.localStream && state.localStream.getAudioTracks().length > 0);
+  const btnMute = document.getElementById('btn-mute');
+  btnMute.disabled = false; // always clickable
+  btnMute.title = micAvailable
+    ? 'Toggle microphone'
+    : 'Microphone blocked — tap to open in new tab';
+  if (!micAvailable) btnMute.classList.add('muted'); // show red/inactive style
+
   document.getElementById('btn-speaker').disabled = false;
+}
+
+// ── MJPEG / snapshot fallback helper (called from HA WebRTC error paths) ─────
+function startMjpegFallback() {
+  const go2rtc  = state.pendingGo2rtc;
+  const camera  = state.pendingCamera;
+  if (go2rtc) {
+    startGo2rtcMjpeg(go2rtc);
+  } else if (camera) {
+    startSnapshotFallback(camera);
+    el.callStatusTxt.textContent = 'Live (snapshot mode)';
+  }
 }
 
 // ── In-call controls ──────────────────────────────────────────────────────────
 document.getElementById('btn-mute').addEventListener('click', () => {
-  const btn = document.getElementById('btn-mute');
-  if (btn.disabled || !state.localStream) {
-    console.log('⚠️ Mic not available (ingress iframe blocks getUserMedia)');
+  if (!state.localStream) {
+    // Microphone was blocked in this context (HA ingress iframe).
+    // Open the same page in a new top-level tab where getUserMedia works.
+    console.log('⚠️ Mic unavailable here — opening in new tab for two-way audio');
+    window.open(window.location.href, '_blank');
     return;
   }
   state.muted = !state.muted;
