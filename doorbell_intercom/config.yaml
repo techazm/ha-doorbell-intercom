@@ -1,5 +1,5 @@
 name: Doorbell Intercom
-version: "1.0.62"
+version: "1.0.63"
 slug: doorbell_intercom
 description: >-
   Universal video intercom for any Home Assistant connected doorbell.
@@ -28,6 +28,7 @@ options:
   doorbells: []
   ring_timeout: 60
   notify_target: ""
+  panel_url: ""
 schema:
   go2rtc_url: str?
   doorbells:
@@ -39,3 +40,4 @@ schema:
       lock_entity: str?
   ring_timeout: int
   notify_target: str?
+  panel_url: str?

@@ -309,6 +309,28 @@ async function fetchAddonSlug() {
   }
 }
 
+// Fetch the HA external URL (e.g. Nabu Casa or DuckDNS) from the HA Core API.
+// Used to build reliable notification deep links that the companion app can open
+// without needing the homeassistant:// URI scheme.
+let haExternalUrl = '';
+async function fetchHaExternalUrl() {
+  try {
+    const resp = await haFetch('/config');
+    if (resp.ok) {
+      const json = await resp.json();
+      const ext = (json.external_url || '').replace(/\/+$/, '');
+      if (ext) {
+        haExternalUrl = ext;
+        console.log(`[HA] External URL: ${haExternalUrl}`);
+      } else {
+        console.log('[HA] No external_url configured in HA — will use homeassistant:// deep link');
+      }
+    }
+  } catch (e) {
+    console.warn('[HA] Could not fetch HA config for external URL:', e.message);
+  }
+}
+
 function connectToHA() {
   console.log('Connecting to HA WebSocket...');
   haWs = new WebSocket(HA_WS_URL);
@@ -327,6 +349,7 @@ function connectToHA() {
       case 'auth_ok':
         console.log('Authenticated with HA — subscribing to events');
         fetchAddonSlug();
+        fetchHaExternalUrl();
         haSubscribeEvents();
         break;
 
@@ -450,7 +473,17 @@ async function sendHaNotification(doorbell) {
   const domain  = dotIdx >= 0 ? cfg.notify_target.slice(0, dotIdx) : 'notify';
   const service = dotIdx >= 0 ? cfg.notify_target.slice(dotIdx + 1) : cfg.notify_target;
 
-  const panelUri = `homeassistant://navigate/hassio/ingress/${addonSlug}`;
+  // Build the panel URI in priority order:
+  //  1. panel_url from add-on config (explicit user override)
+  //  2. HA external_url + /hassio/ingress/<slug>  (e.g. Nabu Casa — opens in companion app)
+  //  3. homeassistant://navigate/ deep link         (fallback; requires app to be configured)
+  const panelPath = `/hassio/ingress/${addonSlug}`;
+  const panelUri = cfg.panel_url
+    ? cfg.panel_url.replace(/\/+$/, '')
+    : haExternalUrl
+      ? `${haExternalUrl}${panelPath}`
+      : `homeassistant://navigate${panelPath}`;
+  console.log(`[NOTIFY] Panel URI → ${panelUri}`);
 
   const actions = [
     {
