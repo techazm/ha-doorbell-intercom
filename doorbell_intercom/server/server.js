@@ -473,18 +473,14 @@ async function sendHaNotification(doorbell) {
   const domain  = dotIdx >= 0 ? cfg.notify_target.slice(0, dotIdx) : 'notify';
   const service = dotIdx >= 0 ? cfg.notify_target.slice(dotIdx + 1) : cfg.notify_target;
 
-  // Build the panel URI in priority order:
-  //  1. panel_url from add-on config (explicit user override)
-  //  2. HA external_url + /<slug>  (e.g. Nabu Casa — opens in companion app)
-  //     Note: /hassio/ingress/<slug> is Supervisor-internal only; the
-  //     actual panel path registered in the HA frontend is just /<slug>.
-  //  3. homeassistant://navigate/<slug> deep link (fallback)
-  const panelPath = `/${addonSlug}`;
+  // Use homeassistant://navigate/<slug> — the companion app intercepts this
+  // scheme and navigates within the app using its existing auth session.
+  // Using an HTTPS URL instead would open an external browser and prompt login.
+  // The panel path for an ingress add-on is just /<slug> (not /hassio/ingress/<slug>).
+  // panel_url config option lets the user override this if needed.
   const panelUri = cfg.panel_url
     ? cfg.panel_url.replace(/\/+$/, '')
-    : haExternalUrl
-      ? `${haExternalUrl}${panelPath}`
-      : `homeassistant://navigate${panelPath}`;
+    : `homeassistant://navigate/${addonSlug}`;
   console.log(`[NOTIFY] Panel URI → ${panelUri}`);
 
   const actions = [

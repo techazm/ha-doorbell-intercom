@@ -128,11 +128,20 @@ function handleMessage(msg) {
     case 'hello':
       // Store the hello payload so we can replay active rings after config loads.
       state._helloMsg = msg;
-      loadConfig().then(() => {
-        // If this client connected while a ring was already active (e.g. the user
-        // tapped the HA notification and the panel opened fresh), replay the ring
-        // so the ringing screen is shown immediately.
-        (state._helloMsg?.active_rings || []).forEach(ring => onDoorbellRing(ring));
+      loadConfig().then(async () => {
+        const rings = state._helloMsg?.active_rings || [];
+        if (rings.length > 0) {
+          // Panel opened while a ring is already active (e.g. user tapped the
+          // notification). Skip the ringing screen and go straight to the video
+          // call — this is what the user wants when they tap "Answer".
+          const ring = rings[0];
+          state.currentDoorbell = ring.doorbell;
+          state.pendingCamera   = ring.camera_entity;
+          state.pendingGo2rtc   = ring.go2rtc_stream || null;
+          state.pendingSpeaker  = ring.speaker_entity || null;
+          await answerCall();
+        }
+        // If no active ring, loadConfig() already left us on the idle screen.
       });
       break;
 
