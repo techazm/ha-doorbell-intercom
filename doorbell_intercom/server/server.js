@@ -67,7 +67,7 @@ app.get('/api/config', (_req, res) => {
       go2rtc_stream: d.go2rtc_stream || null,
       speaker_entity: d.speaker_entity || null,
     })),
-    ha_webrtc_supported: false,
+    ha_webrtc_supported: haWebRtcSupported,
     go2rtc_url: cfg.go2rtc_url || '',
     ring_timeout: cfg.ring_timeout || 60,
   });
@@ -283,7 +283,10 @@ async function callHaService(domain, service, data) {
 let haWs = null;
 let haMsgId = 1;
 const haPending = new Map(); // id → { resolve, reject, timer }
-let haWebRtcSupported = false;
+// Start as true — let HA tell us if the command is unsupported (auto-detected
+// on first use). This enables the native HA WebRTC path (camera/web_rtc_offer)
+// which goes through HA's own go2rtc and supports Reolink two-way audio.
+let haWebRtcSupported = true;
 let addonSlug = 'doorbell_intercom'; // overwritten after HA auth
 
 // Fetch the real add-on slug from Supervisor so notification URIs work

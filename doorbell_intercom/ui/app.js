@@ -223,8 +223,14 @@ async function answerCall() {
   showScreen('call');
 
   if (go2rtc && state.config?.go2rtc_url) {
-    console.log('🎥 Starting go2rtc WebRTC with configured candidates...');
+    // go2rtc WebRTC — lowest latency, two-way audio via configured go2rtc
+    console.log('🎥 Starting go2rtc WebRTC...');
     await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
+  } else if (camera && !state.haWebRtcUnsupported) {
+    // HA native WebRTC — uses HA's internal go2rtc (full build, supports reolink://)
+    // Falls back automatically if HA returns an unsupported error
+    console.log('🎥 Starting HA native WebRTC for', camera);
+    await startHAWebRTC(camera);
   } else if (camera) {
     startSnapshotFallback(camera);
     el.callStatusTxt.textContent = 'Live (snapshot mode)';
@@ -233,7 +239,7 @@ async function answerCall() {
   }
 }
 
-// ── go2rtc WebRTC (direct — best quality + two-way audio) ────────────────────
+// ── go2rtc WebRTC (direct — best quality + two-way audio)
 async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
   try {
     console.log('🚀 Starting go2rtc WebRTC:', streamName, 'at', go2rtcUrl);
@@ -350,18 +356,26 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
   }
 }
 
-// ── HA native WebRTC relay (works with any HA-supported camera) ───────────────
+// ── HA native WebRTC relay (uses HA's internal go2rtc — full build with reolink://) ──
 async function startHAWebRTC(entityId) {
   try {
     const pc = buildPeerConnection();
     state.pc = pc;
 
     await attachMicrophone(pc);
-    pc.addTransceiver('video', { direction: 'recvonly' });
 
+    // Combined stream captures both audio and video from HA's WebRTC
+    const combinedStream = new MediaStream();
     pc.ontrack = (e) => {
-      if (e.track.kind === 'video') showVideoStream(e.streams[0] || new MediaStream([e.track]));
+      console.log('📡 HA WebRTC track:', e.track.kind);
+      combinedStream.addTrack(e.track);
+      if (combinedStream.getVideoTracks().length > 0) {
+        showVideoStream(combinedStream);
+      }
     };
+
+    // Add video receive transceiver (audio handled by attachMicrophone)
+    pc.addTransceiver('video', { direction: 'recvonly' });
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -370,12 +384,14 @@ async function startHAWebRTC(entityId) {
     const sessionId = `intercom_${Date.now()}`;
     state.haSessionId = sessionId;
 
+    console.log('📤 Sending WebRTC offer to HA for', entityId);
     wsSend({
       type:       'webrtc_offer',
       entity_id:  entityId,
       offer:      pc.localDescription.sdp,
       session_id: sessionId,
     });
+    el.callStatusTxt.textContent = 'Connecting via HA…';
     // Answer arrives asynchronously via applyWebRTCAnswer()
 
   } catch (e) {
@@ -832,8 +848,11 @@ async function openDoorbellFromList(index) {
   const camera = state.pendingCamera;
 
   if (go2rtc && state.config?.go2rtc_url) {
-    console.log('🎥 Starting go2rtc WebRTC with configured candidates...');
+    console.log('🎥 Starting go2rtc WebRTC...');
     await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
+  } else if (camera && !state.haWebRtcUnsupported) {
+    console.log('🎥 Starting HA native WebRTC for', camera);
+    await startHAWebRTC(camera);
   } else if (camera) {
     startSnapshotFallback(camera);
     el.callStatusTxt.textContent = 'Live (snapshot mode)';
