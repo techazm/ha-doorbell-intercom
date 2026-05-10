@@ -475,9 +475,11 @@ async function sendHaNotification(doorbell) {
 
   // Build the panel URI in priority order:
   //  1. panel_url from add-on config (explicit user override)
-  //  2. HA external_url + /hassio/ingress/<slug>  (e.g. Nabu Casa — opens in companion app)
-  //  3. homeassistant://navigate/ deep link         (fallback; requires app to be configured)
-  const panelPath = `/hassio/ingress/${addonSlug}`;
+  //  2. HA external_url + /<slug>  (e.g. Nabu Casa — opens in companion app)
+  //     Note: /hassio/ingress/<slug> is Supervisor-internal only; the
+  //     actual panel path registered in the HA frontend is just /<slug>.
+  //  3. homeassistant://navigate/<slug> deep link (fallback)
+  const panelPath = `/${addonSlug}`;
   const panelUri = cfg.panel_url
     ? cfg.panel_url.replace(/\/+$/, '')
     : haExternalUrl
