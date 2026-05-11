@@ -868,38 +868,19 @@ function renderDoorbellList() {
     });
   });
 
-  // Auto-select doorbell from URL hash parameter (e.g., #doorbell=doorbell)
-  autoSelectDoorbellFromUrl();
+  // Auto-select doorbell if only one is configured
+  autoSelectSingleDoorbell();
 }
 
-function autoSelectDoorbellFromUrl() {
+function autoSelectSingleDoorbell() {
   try {
-    // Check hash first (survives ingress better), then query params
-    let doorbellName = null;
-    
-    // Try hash parameter: #doorbell=doorbell
-    if (window.location.hash) {
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
-      doorbellName = hashParams.get('doorbell');
-    }
-    
-    // Fallback to query parameter: ?doorbell=doorbell
-    if (!doorbellName) {
-      const queryParams = new URLSearchParams(window.location.search);
-      doorbellName = queryParams.get('doorbell');
-    }
-
-    if (!doorbellName) return;
-
     const doorbells = state.config?.doorbells || [];
-    const index = doorbells.findIndex(d => d.name.toLowerCase() === doorbellName.toLowerCase());
-    if (index >= 0) {
-      console.log(`🔗 Auto-selecting doorbell from URL: ${doorbellName}`);
-      // Defer auto-selection slightly to ensure UI is ready
-      setTimeout(() => openDoorbellFromList(index), 100);
+    if (doorbells.length === 1) {
+      console.log(`🔗 Auto-selecting single doorbell: ${doorbells[0].name}`);
+      setTimeout(() => openDoorbellFromList(0), 100);
     }
   } catch (e) {
-    console.error('Failed to auto-select doorbell from URL:', e.message);
+    console.error('Failed to auto-select doorbell:', e.message);
   }
 }
 
