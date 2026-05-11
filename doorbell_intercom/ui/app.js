@@ -867,6 +867,40 @@ function renderDoorbellList() {
       }
     });
   });
+
+  // Auto-select doorbell from URL hash parameter (e.g., #doorbell=doorbell)
+  autoSelectDoorbellFromUrl();
+}
+
+function autoSelectDoorbellFromUrl() {
+  try {
+    // Check hash first (survives ingress better), then query params
+    let doorbellName = null;
+    
+    // Try hash parameter: #doorbell=doorbell
+    if (window.location.hash) {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      doorbellName = hashParams.get('doorbell');
+    }
+    
+    // Fallback to query parameter: ?doorbell=doorbell
+    if (!doorbellName) {
+      const queryParams = new URLSearchParams(window.location.search);
+      doorbellName = queryParams.get('doorbell');
+    }
+
+    if (!doorbellName) return;
+
+    const doorbells = state.config?.doorbells || [];
+    const index = doorbells.findIndex(d => d.name.toLowerCase() === doorbellName.toLowerCase());
+    if (index >= 0) {
+      console.log(`🔗 Auto-selecting doorbell from URL: ${doorbellName}`);
+      // Defer auto-selection slightly to ensure UI is ready
+      setTimeout(() => openDoorbellFromList(index), 100);
+    }
+  } catch (e) {
+    console.error('Failed to auto-select doorbell from URL:', e.message);
+  }
 }
 
 async function openDoorbellFromList(index) {
