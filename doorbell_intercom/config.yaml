@@ -1,11 +1,11 @@
 name: Doorbell Intercom
-version: "1.0.65"
+version: "1.0.68"
 slug: doorbell_intercom
 description: >-
   Universal video intercom for any Home Assistant connected doorbell.
   Live video, two-way audio, instant push notifications — works with Reolink,
   Frigate, UniFi Protect, and any camera entity in HA.
-url: https://github.com/yourusername/ha-doorbell-intercom
+url: https://github.com/techazm/ha-doorbell-intercom
 arch:
   - aarch64
   - amd64
@@ -17,7 +17,7 @@ ingress_port: 8765
 ports:
   8766/tcp: 8766
 ports_description:
-  8766/tcp: HTTPS endpoint for local microphone access (accept self-signed cert once)
+  8766/tcp: Optional HTTPS endpoint for local microphone access
 panel_icon: mdi:doorbell-video
 panel_title: Doorbell Intercom
 homeassistant: "2023.0.0"

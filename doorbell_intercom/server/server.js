@@ -30,15 +30,58 @@ try {
   if (cfg.go2rtc_url && cfg.go2rtc_url.startsWith('rtsp://')) {
     const url = new URL(cfg.go2rtc_url);
     const host = url.hostname;
-    const port = url.port || 8554;
     cfg.go2rtc_url = `http://${host}:1984`;
-    console.log(`[CONFIG] Auto-converted RTSP URL to HTTP API URL: ${cfg.go2rtc_url}`);
+    console.log('[CONFIG] Auto-converted RTSP go2rtc URL to HTTP API URL');
+  }
+  if (typeof cfg.go2rtc_url === 'string') {
+    cfg.go2rtc_url = cfg.go2rtc_url.replace(/\/+$/, '');
   }
 } catch (e) {
   console.error('Failed to load add-on config:', e.message);
 }
 
-const indexHtml = fs.readFileSync(path.join(__dirname, 'ui', 'index.html'), 'utf8');
+let indexHtml = '<!DOCTYPE html><html><body><h1>Doorbell Intercom</h1></body></html>';
+try {
+  indexHtml = fs.readFileSync(path.join(__dirname, 'ui', 'index.html'), 'utf8');
+} catch (e) {
+  console.error('Failed to load index.html:', e.message);
+}
+
+function configuredCameraEntities() {
+  return new Set((cfg.doorbells || []).map((doorbell) => doorbell.camera_entity).filter(Boolean));
+}
+
+function configuredGo2rtcStreams() {
+  return new Set((cfg.doorbells || []).map((doorbell) => doorbell.go2rtc_stream).filter(Boolean));
+}
+
+function ensureAllowedCameraEntity(entityId, res) {
+  if (configuredCameraEntities().has(entityId)) return true;
+  res.status(403).json({ error: 'Camera entity is not configured for this add-on' });
+  return false;
+}
+
+function ensureAllowedStreamName(streamName, res) {
+  if (configuredGo2rtcStreams().has(streamName)) return true;
+  res.status(403).json({ error: 'go2rtc stream is not configured for this add-on' });
+  return false;
+}
+
+function pipeProxyResponse(req, res, upstream, fallbackType) {
+  res.set('Content-Type', upstream.headers.get('content-type') || fallbackType);
+  res.set('Cache-Control', 'no-cache');
+  if (upstream.body) {
+    upstream.body.pipe(res);
+    req.on('close', () => upstream.body.destroy());
+    upstream.body.on('error', (err) => {
+      console.error('Upstream proxy stream error:', err.message);
+      if (!res.headersSent) res.status(502).end();
+      else res.end();
+    });
+    return;
+  }
+  res.status(502).end();
+}
 
 // ── HTTP + WebSocket server ───────────────────────────────────────────────────
 
@@ -68,19 +111,18 @@ app.get('/api/config', (_req, res) => {
       speaker_entity: d.speaker_entity || null,
     })),
     ha_webrtc_supported: haWebRtcSupported,
-    go2rtc_url: cfg.go2rtc_url || '',
+    has_go2rtc: Boolean(cfg.go2rtc_url),
     ring_timeout: cfg.ring_timeout || 60,
   });
 });
 
 // Proxy camera snapshot (avoids exposing HA long-lived token to the browser)
 app.get('/api/snapshot/:entityId', async (req, res) => {
+  if (!ensureAllowedCameraEntity(req.params.entityId, res)) return;
   try {
     const resp = await haFetch(`/camera_proxy/${req.params.entityId}`);
     if (!resp.ok) return res.status(resp.status).end();
-    res.set('Content-Type', resp.headers.get('content-type') || 'image/jpeg');
-    res.set('Cache-Control', 'no-cache');
-    resp.body.pipe(res);
+    pipeProxyResponse(req, res, resp, 'image/jpeg');
   } catch (e) {
     console.error('Snapshot proxy error:', e.message);
     res.status(500).end();
@@ -89,13 +131,11 @@ app.get('/api/snapshot/:entityId', async (req, res) => {
 
 // Proxy MJPEG stream from HA — fallback when WebRTC is unavailable
 app.get('/api/stream/:entityId', async (req, res) => {
+  if (!ensureAllowedCameraEntity(req.params.entityId, res)) return;
   try {
     const resp = await haFetch(`/camera_proxy_stream/${req.params.entityId}`);
     if (!resp.ok) return res.status(resp.status).end();
-    res.set('Content-Type', resp.headers.get('content-type') || 'multipart/x-mixed-replace');
-    res.set('Cache-Control', 'no-cache');
-    resp.body.pipe(res);
-    req.on('close', () => resp.body.destroy());
+    pipeProxyResponse(req, res, resp, 'multipart/x-mixed-replace');
   } catch (e) {
     console.error('Stream proxy error:', e.message);
     res.status(500).end();
@@ -105,6 +145,7 @@ app.get('/api/stream/:entityId', async (req, res) => {
 // Proxy go2rtc stream with format support (mp4, mkv, webm, mjpeg)
 app.get('/api/go2rtc-stream/:streamName', async (req, res) => {
   if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
+  if (!ensureAllowedStreamName(req.params.streamName, res)) return;
   
   const streamName = req.params.streamName;
   const format = req.query.format || 'generic';
@@ -112,8 +153,8 @@ app.get('/api/go2rtc-stream/:streamName', async (req, res) => {
   // If 'generic' or no format specified, use /api/stream to let go2rtc auto-select
   let url;
   if (format === 'generic') {
-    url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/stream?src=${encodeURIComponent(streamName)}`;
-    console.log(`[STREAM] Using generic auto-select endpoint: ${url}`);
+    url = `${cfg.go2rtc_url}/api/stream?src=${encodeURIComponent(streamName)}`;
+    console.log(`[STREAM] Using generic auto-select endpoint for ${streamName}`);
   } else {
     const formatMap = {
       'mp4': 'stream.mp4',
@@ -123,12 +164,11 @@ app.get('/api/go2rtc-stream/:streamName', async (req, res) => {
     };
     
     const endpoint = formatMap[format] || 'stream.mjpeg';
-    url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/${endpoint}?src=${encodeURIComponent(streamName)}`;
-    console.log(`[STREAM] Requesting ${format} format: ${url}`);
+    url = `${cfg.go2rtc_url}/api/${endpoint}?src=${encodeURIComponent(streamName)}`;
+    console.log(`[STREAM] Requesting ${format} format for ${streamName}`);
   }
   
   try {
-    console.log(`[STREAM] Requesting ${format} from go2rtc: ${url}`);
     const resp = await fetch(url);
     
     if (!resp.ok) {
@@ -137,12 +177,8 @@ app.get('/api/go2rtc-stream/:streamName', async (req, res) => {
     }
     
     console.log(`[STREAM] Serving ${format} stream for ${streamName}`);
-    res.set('Content-Type', resp.headers.get('content-type') || 'multipart/x-mixed-replace; boundary=go2rtc');
-    res.set('Cache-Control', 'no-cache');
     res.set('Connection', 'keep-alive');
-    res.set('Access-Control-Allow-Origin', '*');
-    resp.body.pipe(res);
-    req.on('close', () => resp.body.destroy());
+    pipeProxyResponse(req, res, resp, 'multipart/x-mixed-replace; boundary=go2rtc');
   } catch (e) {
     console.error(`[STREAM] Proxy error for ${streamName}:`, e.message);
     res.status(500).json({ error: 'Stream proxy failed', details: e.message });
@@ -152,6 +188,7 @@ app.get('/api/go2rtc-stream/:streamName', async (req, res) => {
 // Proxy go2rtc audio stream (separate from video, for audio-only fallback)
 app.get('/api/go2rtc-audio/:streamName', async (req, res) => {
   if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
+  if (!ensureAllowedStreamName(req.params.streamName, res)) return;
   
   const streamName = req.params.streamName;
   
@@ -165,18 +202,14 @@ app.get('/api/go2rtc-audio/:streamName', async (req, res) => {
   
   // Try each audio endpoint
   for (const {endpoint, format} of audioEndpoints) {
-    const url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/${endpoint}?src=${encodeURIComponent(streamName)}`;
+    const url = `${cfg.go2rtc_url}/api/${endpoint}?src=${encodeURIComponent(streamName)}`;
     try {
-      console.log(`[AUDIO] Trying ${format} endpoint: ${url}`);
+      console.log(`[AUDIO] Trying ${format} endpoint for ${streamName}`);
       const resp = await fetch(url);
       if (resp.ok) {
         console.log(`[AUDIO] ✅ Found ${format} audio stream!`);
-        res.set('Content-Type', resp.headers.get('content-type') || `audio/${format}`);
-        res.set('Cache-Control', 'no-cache');
         res.set('Connection', 'keep-alive');
-        res.set('Access-Control-Allow-Origin', '*');
-        resp.body.pipe(res);
-        req.on('close', () => resp.body.destroy());
+        pipeProxyResponse(req, res, resp, `audio/${format}`);
         return;
       }
     } catch (e) {
@@ -196,7 +229,8 @@ app.get('/api/go2rtc-audio/:streamName', async (req, res) => {
 // from the source camera. Used for audio diagnostics.
 app.get('/api/go2rtc-stream-info/:streamName', async (req, res) => {
   if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
-  const base = cfg.go2rtc_url.replace(/\/+$/, '');
+  if (!ensureAllowedStreamName(req.params.streamName, res)) return;
+  const base = cfg.go2rtc_url;
   try {
     const resp = await fetch(`${base}/api/streams`);
     if (!resp.ok) return res.status(resp.status).json({ error: `go2rtc /api/streams returned ${resp.status}` });
@@ -221,7 +255,8 @@ app.get('/api/go2rtc-stream-info/:streamName', async (req, res) => {
 // Proxy go2rtc WebRTC SDP signaling (avoids CORS from browser to go2rtc)
 app.post('/api/webrtc-proxy/:streamName', async (req, res) => {
   if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
-  const url = `${cfg.go2rtc_url.replace(/\/+$/, '')}/api/webrtc?src=${encodeURIComponent(req.params.streamName)}`;
+  if (!ensureAllowedStreamName(req.params.streamName, res)) return;
+  const url = `${cfg.go2rtc_url}/api/webrtc?src=${encodeURIComponent(req.params.streamName)}`;
   try {
     const body = await new Promise((resolve, reject) => {
       let data = '';

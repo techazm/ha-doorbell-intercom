@@ -51,6 +51,9 @@ const el = {
 };
 
 let mediaReady = false;
+const FAST_ICE_TIMEOUT_MS = 1800;
+const STREAM_FORMAT_PROBE_TIMEOUT_MS = 1200;
+const FAST_FALLBACK_MS = 2200;
 
 // ── Screen routing ────────────────────────────────────────────────────────────
 function showScreen(name) {
@@ -218,23 +221,44 @@ document.getElementById('btn-dismiss').addEventListener('click', () => {
 
 async function answerCall() {
   stopRingTone();
+  wsSend({ type: 'call_answered', doorbell: state.currentDoorbell });
+  await startPendingCall();
+}
+
+function resetActiveMedia() {
+  if (state.pc) {
+    state.pc.close();
+    state.pc = null;
+  }
+  if (state.localStream) {
+    state.localStream.getTracks().forEach((track) => track.stop());
+    state.localStream = null;
+  }
+  stopSnapshotFallback();
+  el.callVideo.srcObject = null;
+  el.callVideo.src = '';
+  el.callVideo.muted = true;
+  el.callMjpeg.src = '';
+  state.hasWebRTC = false;
+}
+
+async function startPendingCall() {
   const doorbell = state.currentDoorbell;
-  const camera   = state.pendingCamera;
-  const go2rtc   = state.pendingGo2rtc;
+  const camera = state.pendingCamera;
+  const go2rtc = state.pendingGo2rtc;
 
-  wsSend({ type: 'call_answered', doorbell });
-
-  el.callDbName.textContent    = doorbell;
+  resetActiveMedia();
+  el.callDbName.textContent = doorbell;
   el.callStatusTxt.textContent = 'Connecting…';
   el.callVideo.classList.add('hidden');
   el.callMjpeg.classList.add('hidden');
   el.callNoVideo.classList.remove('hidden');
   showScreen('call');
 
-  if (go2rtc && state.config?.go2rtc_url) {
+  if (go2rtc && state.config?.has_go2rtc) {
     // go2rtc WebRTC — lowest latency, two-way audio via configured go2rtc
     console.log('🎥 Starting go2rtc WebRTC...');
-    await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
+    await startGo2rtcWebRTC(go2rtc);
   } else if (camera && !state.haWebRtcUnsupported) {
     // HA native WebRTC — uses HA's internal go2rtc (full build, supports reolink://)
     // Falls back automatically if HA returns an unsupported error
@@ -249,11 +273,20 @@ async function answerCall() {
 }
 
 // ── go2rtc WebRTC (direct — best quality + two-way audio)
-async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
+async function startGo2rtcWebRTC(streamName) {
+  let fastFallbackTimer = null;
   try {
-    console.log('🚀 Starting go2rtc WebRTC:', streamName, 'at', go2rtcUrl);
+    console.log('🚀 Starting go2rtc WebRTC:', streamName);
     const pc = buildPeerConnection();
     state.pc = pc;
+
+    // If WebRTC startup is slow, show HTTP stream quickly.
+    fastFallbackTimer = setTimeout(() => {
+      if (!state.hasWebRTC && state.currentDoorbell) {
+        console.warn('⏩ WebRTC slow to start, switching to fast HTTP stream');
+        startGo2rtcMjpeg(streamName);
+      }
+    }, FAST_FALLBACK_MS);
 
     // Monitor connection state
     pc.onconnectionstatechange = () => {
@@ -305,7 +338,7 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
       offerToReceiveVideo: true,
     });
     await pc.setLocalDescription(offer);
-    await waitForIceGathering(pc);
+    await waitForIceGathering(pc, FAST_ICE_TIMEOUT_MS);
 
     // Use server proxy to avoid CORS + ingress isolation issues
     const webrtcUrl = `${apiBase}/api/webrtc-proxy/${encodeURIComponent(streamName)}`;
@@ -340,6 +373,7 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     });
     
     await pc.setRemoteDescription({ type: 'answer', sdp });
+    clearTimeout(fastFallbackTimer);
     console.log('✅ WebRTC answer accepted from go2rtc!');
     el.callStatusTxt.textContent = 'Live';
 
@@ -360,8 +394,9 @@ async function startGo2rtcWebRTC(streamName, go2rtcUrl) {
     }, 3000);
 
   } catch (e) {
+    clearTimeout(fastFallbackTimer);
     console.error('❌ WebRTC failed:', e.message);
-    el.callStatusTxt.textContent = `Error: ${e.message}`;
+    startGo2rtcMjpeg(streamName);
   }
 }
 
@@ -388,7 +423,7 @@ async function startHAWebRTC(entityId) {
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    await waitForIceGathering(pc);
+    await waitForIceGathering(pc, FAST_ICE_TIMEOUT_MS);
 
     const sessionId = `intercom_${Date.now()}`;
     state.haSessionId = sessionId;
@@ -468,7 +503,18 @@ function tryStreamFormat(streamName, formats, index) {
 
   el.callVideo.src = url;
 
+  let settled = false;
+  let probeTimer = null;
+  const cleanup = () => {
+    el.callVideo.removeEventListener('canplay', onCanPlay);
+    el.callVideo.removeEventListener('error', onError);
+    if (probeTimer) clearTimeout(probeTimer);
+  };
+
   const onCanPlay = () => {
+    if (settled) return;
+    settled = true;
+    cleanup();
     // First format that plays wins — accept it regardless of whether audio is
     // present (browser plays audio automatically if the stream contains it).
     console.log(`\u2705 Format ${format} playable — using it`);
@@ -478,12 +524,22 @@ function tryStreamFormat(streamName, formats, index) {
   };
 
   const onError = () => {
+    if (settled) return;
+    settled = true;
+    cleanup();
     console.warn(`\u26a0\ufe0f Format ${format} failed, trying next...`);
     tryStreamFormat(streamName, formats, index + 1);
   };
 
   el.callVideo.addEventListener('canplay', onCanPlay, { once: true });
   el.callVideo.addEventListener('error',   onError,   { once: true });
+  probeTimer = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    console.warn(`⏱️ Format ${format} probe timeout, trying next...`);
+    tryStreamFormat(streamName, formats, index + 1);
+  }, STREAM_FORMAT_PROBE_TIMEOUT_MS);
   el.callVideo.play().catch(e => console.warn(`\u26a0\ufe0f Play failed for ${format}:`, e.message));
 }
 
@@ -548,7 +604,7 @@ async function attachMicrophone(pc) {
   }
 }
 
-function waitForIceGathering(pc) {
+function waitForIceGathering(pc, timeoutMs = FAST_ICE_TIMEOUT_MS) {
   return new Promise((resolve) => {
     if (pc.iceGatheringState === 'complete') { 
       console.log('✅ ICE gathering already complete');
@@ -563,12 +619,12 @@ function waitForIceGathering(pc) {
       } 
     };
     pc.addEventListener('icegatheringstatechange', done);
-    // Wait up to 15s for local network candidates
+    // Keep ICE wait short to prioritize fast first-frame load.
     setTimeout(() => {
       pc.removeEventListener('icegatheringstatechange', done);
-      console.warn('⏱️ ICE gathering timeout (15s), proceeding with available candidates');
+      console.warn(`⏱️ ICE gathering timeout (${timeoutMs}ms), proceeding with available candidates`);
       resolve();
-    }, 15000);
+    }, timeoutMs);
   });
 }
 
@@ -676,13 +732,13 @@ document.getElementById('btn-mute').addEventListener('click', async () => {
     // a mic track (recvonly), so go2rtc set up no receive channel. Simply adding
     // the track via addTrack() won't help. We must restart the WebRTC connection
     // so the new SDP offer includes the mic track (sendrecv audio).
-    if (state.pc && state.pendingGo2rtc && state.config?.go2rtc_url) {
+    if (state.pc && state.pendingGo2rtc && state.config?.has_go2rtc) {
       console.log('🎤 Restarting WebRTC to include mic in SDP offer...');
       const oldPc = state.pc;
       state.pc = null;
       oldPc.close();
       flashStatus('Reconnecting with mic...');
-      await startGo2rtcWebRTC(state.pendingGo2rtc, state.config.go2rtc_url);
+      await startGo2rtcWebRTC(state.pendingGo2rtc);
     } else {
       flashStatus('Mic active — will be used on next call');
     }
@@ -708,12 +764,6 @@ document.getElementById('btn-speaker').addEventListener('click', () => {
     console.log('🔊 WebRTC audio toggled:', state.speakerMuted ? 'muted' : 'unmuted');
   }
   
-  // Also mute fallback audio if present
-  const audioEl = document.getElementById('fallback-audio');
-  if (audioEl) {
-    audioEl.muted = state.speakerMuted;
-  }
-  
   console.log('🔊 Speaker toggled:', state.speakerMuted ? 'muted' : 'unmuted');
   
   // Update button visual state
@@ -728,24 +778,9 @@ document.getElementById('btn-hangup').addEventListener('click', () => {
 });
 
 function endCall() {
-  if (state.pc) { state.pc.close(); state.pc = null; }
-  if (state.localStream) { state.localStream.getTracks().forEach(t => t.stop()); state.localStream = null; }
-  stopSnapshotFallback();
-
-  el.callVideo.srcObject = null;
-  el.callVideo.src = '';
-  el.callVideo.muted = true;
-  el.callMjpeg.src = '';
-  
-  // Stop fallback audio if present
-  const audioEl = document.getElementById('fallback-audio');
-  if (audioEl) {
-    audioEl.pause();
-    audioEl.src = '';
-  }
+  resetActiveMedia();
 
   // Reset state
-  state.hasWebRTC = false;
   state.muted = false;
   el.iconMic.classList.remove('hidden');
   el.iconMicOff.classList.add('hidden');
@@ -782,14 +817,11 @@ async function loadConfig() {
     state.haWebRtcUnsupported = state.config?.ha_webrtc_supported === false;
     console.log('⚙️  Config loaded:', {
       doorbells: state.config?.doorbells?.length,
-      go2rtc_url: state.config?.go2rtc_url,
+      has_go2rtc: state.config?.has_go2rtc,
       ha_webrtc_supported: state.config?.ha_webrtc_supported
     });
     console.log('🚪 Doorbells:', state.config?.doorbells);
     renderDoorbellList();
-    // Ensure we're on the idle screen (especially after page refresh)
-    showScreen('idle');
-    // Stop any lingering video playback
     endCall();
   } catch (e) {
     console.error('Failed to load config:', e.message);
@@ -845,29 +877,7 @@ async function openDoorbellFromList(index) {
   state.pendingCamera   = doorbell.camera_entity;
   state.pendingGo2rtc   = doorbell.go2rtc_stream || null;
   state.pendingSpeaker  = doorbell.speaker_entity || null;
-
-  el.callDbName.textContent    = doorbell.name;
-  el.callStatusTxt.textContent = 'Connecting…';
-  el.callVideo.classList.add('hidden');
-  el.callMjpeg.classList.add('hidden');
-  el.callNoVideo.classList.remove('hidden');
-  showScreen('call');
-
-  const go2rtc = state.pendingGo2rtc;
-  const camera = state.pendingCamera;
-
-  if (go2rtc && state.config?.go2rtc_url) {
-    console.log('🎥 Starting go2rtc WebRTC...');
-    await startGo2rtcWebRTC(go2rtc, state.config.go2rtc_url);
-  } else if (camera && !state.haWebRtcUnsupported) {
-    console.log('🎥 Starting HA native WebRTC for', camera);
-    await startHAWebRTC(camera);
-  } else if (camera) {
-    startSnapshotFallback(camera);
-    el.callStatusTxt.textContent = 'Live (snapshot mode)';
-  } else {
-    el.callStatusTxt.textContent = 'No camera configured';
-  }
+  await startPendingCall();
 }
 
 // ── Browser push notifications (background tab) ───────────────────────────────

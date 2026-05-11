@@ -4,15 +4,15 @@ A universal video intercom add-on for Home Assistant. Works with **any HA-connec
 
 ## Features
 
-- Live video + two-way audio (WebRTC)
+- Live video with automatic fallback between WebRTC, go2rtc HTTP streaming, and snapshots
+- Two-way audio when the selected WebRTC path and camera/go2rtc backchannel support it
 - Instant ring notification with camera snapshot
 - Works on any device with a browser (phone, tablet, desktop)
 - Appears as a sidebar panel in HA
 - Browser push notifications when in background tab
-- Three video modes (automatic fallback):
-  1. **HA native WebRTC** — best compatibility, uses HA's built-in WebRTC relay
-  2. **go2rtc WebRTC** — best performance if go2rtc is installed
-  3. **MJPEG stream** — universal fallback (no two-way audio)
+- Optional lock action in mobile notifications
+- Optional speaker target for TTS-based follow-up actions
+- Browser clients only receive configured doorbells and stream identifiers, not the raw internal go2rtc URL
 
 ---
 
@@ -41,6 +41,8 @@ doorbells:
 
 go2rtc_url: "http://homeassistant.local:1984"   # optional: leave blank if not using go2rtc
 ring_timeout: 60                                 # seconds before auto-dismiss
+notify_target: "notify.mobile_app_pixel"        # optional: HA notify service for push notifications
+panel_url: ""                                   # optional: override notification deep-link target
 ```
 
 ### Finding your doorbell sensor entity
@@ -53,23 +55,24 @@ Go to **Developer Tools > States** and search for your doorbell name. Look for:
 
 ## Video & Audio modes
 
-### Mode 1: HA native WebRTC (recommended for most setups)
-- Set `camera_entity` to your camera
-- Leave `go2rtc_stream` blank
-- Requires the camera integration to support WebRTC (Reolink ✓, Frigate ✓, UniFi Protect ✓)
-- Two-way audio works if the camera driver supports the audio backchannel
+The client chooses the first working mode in this order:
 
-### Mode 2: go2rtc WebRTC
-- Install the [go2rtc add-on](https://github.com/AlexxIT/go2rtc)
-- Configure your doorbell stream in go2rtc using the `reolink://` source for Reolink cameras
-- Set `go2rtc_url` and `go2rtc_stream` in this add-on's config
-- Best quality and lowest latency (~0.5s)
-- Full two-way audio guaranteed
+1. **go2rtc WebRTC**
+      - Used when both `go2rtc_url` and `go2rtc_stream` are configured.
+      - Lowest latency and the best path for two-way audio.
 
-### Mode 3: MJPEG fallback
-- Automatic if WebRTC fails
-- Video only (no two-way audio)
-- Works with any HA camera entity
+2. **Home Assistant native WebRTC**
+      - Used when `camera_entity` is configured and HA supports `camera/web_rtc_offer`.
+      - Good compatibility, especially when HA already fronts the camera via its own go2rtc.
+
+3. **go2rtc HTTP streaming fallback**
+      - Used when WebRTC fails and `go2rtc_stream` is configured.
+      - Tries the generic `/api/stream` endpoint first, then falls back to MJPEG.
+      - Audio in this mode depends on go2rtc exposing audio for HTTP/browser playback.
+
+4. **Snapshot fallback**
+      - Used when no streaming path works but `camera_entity` is available.
+      - Universal compatibility, video snapshots only.
 
 ---
 
@@ -80,10 +83,30 @@ In your go2rtc add-on config or `/config/go2rtc.yaml`:
 ```yaml
 streams:
   front_door:
-    - reolink://admin:YOUR_PASSWORD@192.168.1.XXX
+            - reolink://USERNAME:PASSWORD@CAMERA_HOST
 ```
 
 The `reolink://` source enables the two-way audio backchannel.
+
+If your source stream already has audio but browser playback is silent on HTTP fallback,
+check the generic go2rtc stream first. Some go2rtc builds expose audio only on the generic
+`/api/stream?src=...` endpoint and not on specific `stream.mp4`/`stream.webm` endpoints.
+
+For cameras that require audio re-encoding in go2rtc, you may need to force AAC output in
+your go2rtc/Frigate configuration.
+
+## Security notes
+
+- Proxy routes are restricted to `camera_entity` and `go2rtc_stream` values explicitly configured in the add-on.
+- The browser UI is not given the Home Assistant supervisor token or the internal `go2rtc_url`.
+- TLS certificates for the optional HTTPS mic port are generated at container startup and are not baked into the image.
+
+## Notification options
+
+- `notify_target`: Home Assistant notify service used for push notifications.
+- `panel_url`: Optional override for the URL/deep link opened by the mobile notification.
+- `lock_entity`: Optional per-doorbell lock entity used by the Unlock action.
+- `speaker_entity`: Optional per-doorbell media player entity for TTS-based actions.
 
 ---
 
