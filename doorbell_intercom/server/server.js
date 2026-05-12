@@ -47,22 +47,18 @@ try {
   console.error('Failed to load index.html:', e.message);
 }
 
-function configuredCameraEntities() {
-  return new Set((cfg.doorbells || []).map((doorbell) => doorbell.camera_entity).filter(Boolean));
-}
-
-function configuredGo2rtcStreams() {
-  return new Set((cfg.doorbells || []).map((doorbell) => doorbell.go2rtc_stream).filter(Boolean));
-}
+// Build allowlists once at startup — cfg is immutable after boot.
+const allowedCameraEntities = new Set((cfg.doorbells || []).map((d) => d.camera_entity).filter(Boolean));
+const allowedGo2rtcStreams   = new Set((cfg.doorbells || []).map((d) => d.go2rtc_stream).filter(Boolean));
 
 function ensureAllowedCameraEntity(entityId, res) {
-  if (configuredCameraEntities().has(entityId)) return true;
+  if (allowedCameraEntities.has(entityId)) return true;
   res.status(403).json({ error: 'Camera entity is not configured for this add-on' });
   return false;
 }
 
 function ensureAllowedStreamName(streamName, res) {
-  if (configuredGo2rtcStreams().has(streamName)) return true;
+  if (allowedGo2rtcStreams.has(streamName)) return true;
   res.status(403).json({ error: 'go2rtc stream is not configured for this add-on' });
   return false;
 }
@@ -189,40 +185,40 @@ app.get('/api/go2rtc-stream/:streamName', async (req, res) => {
 app.get('/api/go2rtc-audio/:streamName', async (req, res) => {
   if (!cfg.go2rtc_url) return res.status(404).json({ error: 'go2rtc_url not configured' });
   if (!ensureAllowedStreamName(req.params.streamName, res)) return;
-  
+
   const streamName = req.params.streamName;
-  
-  // Try audio-only endpoints in order of likelihood
-  const audioEndpoints = [
-    { endpoint: 'stream.aac', format: 'aac' },
-    { endpoint: 'stream.opus', format: 'opus' },
-    { endpoint: 'stream.g711', format: 'g711' },
-    { endpoint: 'stream.wav', format: 'wav' },
-  ];
-  
-  // Try each audio endpoint
-  for (const {endpoint, format} of audioEndpoints) {
-    const url = `${cfg.go2rtc_url}/api/${endpoint}?src=${encodeURIComponent(streamName)}`;
-    try {
-      console.log(`[AUDIO] Trying ${format} endpoint for ${streamName}`);
-      const resp = await fetch(url);
-      if (resp.ok) {
-        console.log(`[AUDIO] ✅ Found ${format} audio stream!`);
-        res.set('Connection', 'keep-alive');
-        pipeProxyResponse(req, res, resp, `audio/${format}`);
-        return;
-      }
-    } catch (e) {
-      console.log(`[AUDIO] ${format} endpoint failed:`, e.message);
-    }
+  const audioFormats = ['aac', 'opus', 'g711', 'wav'];
+
+  // Probe all endpoints in parallel — use the first one that responds OK.
+  let winnerResp = null;
+  let winnerFormat = null;
+  try {
+    const result = await Promise.any(
+      audioFormats.map(async (format) => {
+        const url = `${cfg.go2rtc_url}/api/stream.${format}?src=${encodeURIComponent(streamName)}`;
+        console.log(`[AUDIO] Probing ${format} endpoint for ${streamName}`);
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`${format} returned ${resp.status}`);
+        return { resp, format };
+      })
+    );
+    winnerResp   = result.resp;
+    winnerFormat = result.format;
+  } catch {
+    // Promise.any rejects with AggregateError only when all fail
   }
-  
-  // No audio endpoints found
-  console.log('[AUDIO] ❌ No audio streams available from go2rtc');
-  res.status(404).json({ 
-    error: 'No audio stream available',
-    message: 'Audio is present in source but not encoded by go2rtc. Check go2rtc config to enable audio encoding for output formats.'
-  });
+
+  if (!winnerResp) {
+    console.log('[AUDIO] ❌ No audio streams available from go2rtc');
+    return res.status(404).json({
+      error: 'No audio stream available',
+      message: 'Audio is present in source but not encoded by go2rtc. Check go2rtc config to enable audio encoding for output formats.',
+    });
+  }
+
+  console.log(`[AUDIO] ✅ Found ${winnerFormat} audio stream!`);
+  res.set('Connection', 'keep-alive');
+  pipeProxyResponse(req, res, winnerResp, `audio/${winnerFormat}`);
 });
 
 // Proxy go2rtc stream info — returns what tracks (video/audio) go2rtc sees
@@ -428,6 +424,9 @@ function connectToHA() {
 // Send a message to HA and return a Promise for the result
 function haSend(payload) {
   return new Promise((resolve, reject) => {
+    if (!haWs || haWs.readyState !== WebSocket.OPEN) {
+      return reject(new Error('HA WebSocket not connected'));
+    }
     const id = haMsgId++;
     const timer = setTimeout(() => {
       haPending.delete(id);
@@ -646,6 +645,15 @@ wss.on('connection', (ws) => {
           }));
           break;
         }
+        // Validate entity_id against the configured allowlist
+        if (!allowedCameraEntities.has(msg.entity_id)) {
+          ws.send(JSON.stringify({
+            type: 'webrtc_error',
+            error: 'Camera entity is not configured for this add-on',
+            session_id: msg.session_id,
+          }));
+          break;
+        }
         try {
           const result = await haSend({
             type: 'camera/web_rtc_offer',
@@ -703,8 +711,9 @@ wss.on('connection', (ws) => {
       // ── Speak through speaker entity (TTS fallback) ────────────────────────
       case 'speak': {
         if (msg.speaker_entity && msg.message) {
+          const ttsEntity = cfg.tts_entity || 'tts.piper';
           await callHaService('tts', 'speak', {
-            entity_id: 'tts.piper',
+            entity_id: ttsEntity,
             media_player_entity_id: msg.speaker_entity,
             message: msg.message,
           });
