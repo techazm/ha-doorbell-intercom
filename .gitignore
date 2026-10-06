@@ -1,0 +1,52 @@
+# Keep build output, local state and anything secret out of git.
+
+# Secrets and credentials: never commit these. Use *.example files for templates.
+.env
+.env.*
+*.env
+!.env.example
+!*.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+*.kdbx
+id_rsa*
+id_ecdsa*
+id_ed25519*
+credentials.json
+*service-account*.json
+*-sa-key.json
+secrets.yaml
+secrets.yml
+secrets.json
+.npmrc
+.pypirc
+.netrc
+.htpasswd
+
+# Local tooling and agent state
+.claude/settings.local.json
+CLAUDE.local.md
+*.local.md
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.log
+
+# Node
+node_modules/
+coverage/
+.npm/
+.eslintcache
+npm-debug.log*
