@@ -23,8 +23,6 @@ updates:
     directory: /
     multi-ecosystem-group: daily
     patterns: ['*']
-    commit-message:
-      prefix: chore(deps)
     groups:
       security:
         applies-to: security-updates
@@ -36,8 +34,6 @@ updates:
     directory: /doorbell_intercom/server
     multi-ecosystem-group: daily
     patterns: ['*']
-    commit-message:
-      prefix: chore(deps)
     groups:
       security:
         applies-to: security-updates
