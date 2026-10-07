@@ -1,7 +1,8 @@
-# Monthly list of dependencies with a new MAJOR version available.
-# Dependabot only proposes patch/minor updates (see dependabot.yml); majors are upgraded
-# deliberately. This keeps one issue up to date with what is waiting, and closes it once
-# nothing is.
+# Monthly list of dependencies with a new MAJOR version, across every ecosystem
+# (GitHub Actions, npm, Docker images, Terraform providers, Python packages).
+# Dependabot only proposes patch/minor updates (see dependabot.yml), so majors are
+# upgraded deliberately. This keeps one issue up to date with what is waiting and
+# closes it once nothing is.
 name: Dependency report
 
 on:
@@ -34,7 +35,9 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: doorbell_intercom/server
       - name: Find new majors
-        run: node .github/scripts/dependency-report.mjs doorbell_intercom/server > "$RUNNER_TEMP/majors.md"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/dependency-report.py --npm doorbell_intercom/server > "$RUNNER_TEMP/majors.md"
       - name: Open, update or close the tracking issue
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,7 +49,7 @@ jobs:
             exit 0
           fi
           {
-            echo 'These dependencies have a new major version. Majors do not come as Dependabot PRs, so each needs a deliberate upgrade (read the changelog, bump, test).'
+            echo 'These dependencies have a new major version. Majors do not come as Dependabot PRs, so each needs a deliberate upgrade: read the changelog, bump, test.'
             echo
             cat "$RUNNER_TEMP/majors.md"
             echo
