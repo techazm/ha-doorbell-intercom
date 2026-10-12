@@ -134,3 +134,11 @@ Browser starts WebRTC (offer → HA relay → camera)
       ▼
 Live video + two-way audio
 ```
+## Development workflow
+
+[![CI](https://github.com/techazm/ha-doorbell-intercom/actions/workflows/ci.yml/badge.svg)](https://github.com/techazm/ha-doorbell-intercom/actions/workflows/ci.yml)
+[![Security](https://github.com/techazm/ha-doorbell-intercom/actions/workflows/security.yml/badge.svg)](https://github.com/techazm/ha-doorbell-intercom/actions/workflows/security.yml)
+
+Changes land on `main` through pull requests with green checks (CI, secret scan,
+Conventional Commit title). See [CONTRIBUTING.md](CONTRIBUTING.md) for branching,
+commit style and local checks, and [SECURITY.md](SECURITY.md) to report a vulnerability.

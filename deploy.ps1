@@ -1,51 +1,54 @@
 <#
 .SYNOPSIS
-    Bump the add-on patch version in config.yaml, commit all staged/unstaged
-    changes, and push to origin (techazm account via SSH alias).
+    Release the add-on: bump the patch version in config.yaml on a release branch,
+    open a pull request and let GitHub squash-merge it once the checks are green.
+
+.DESCRIPTION
+    main is protected (no direct pushes), so releases go through a PR like any other
+    change. Requires the GitHub CLI (gh) logged in as an account with write access.
 
 .USAGE
-    .\deploy.ps1 [-Message "optional commit message"]
+    .\deploy.ps1 [-Message "optional PR title"]
 #>
 param(
     [string]$Message = ""
 )
 
 $ErrorActionPreference = "Stop"
-$RepoRoot  = $PSScriptRoot
+$RepoRoot   = $PSScriptRoot
 $ConfigFile = Join-Path $RepoRoot "doorbell_intercom\config.yaml"
 
-# ── 1. Read & bump patch version ───────────────────────────────────────────────
+function Invoke-Git { git -C $RepoRoot @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed" } }
+
+# 1. Start from an up-to-date main.
+Invoke-Git fetch origin
+Invoke-Git switch main
+Invoke-Git pull --ff-only origin main
+
+# 2. Read and bump the patch version.
 $content = Get-Content $ConfigFile -Raw
-if ($content -notmatch 'version:\s+"(\d+)\.(\d+)\.(\d+)"') {
-    Write-Error "Could not find version string in config.yaml"
-    exit 1
-}
-$major = [int]$Matches[1]
-$minor = [int]$Matches[2]
-$patch = [int]$Matches[3]
-$oldVersion = "$major.$minor.$patch"
-$newVersion = "$major.$minor.$($patch + 1)"
-
+if ($content -notmatch 'version:\s+"(\d+)\.(\d+)\.(\d+)"') { throw "Could not find version string in config.yaml" }
+$oldVersion = "$($Matches[1]).$($Matches[2]).$($Matches[3])"
+$newVersion = "$($Matches[1]).$($Matches[2]).$([int]$Matches[3] + 1)"
 $content = $content -replace "version:\s+`"$oldVersion`"", "version: `"$newVersion`""
+
+# 3. Commit the bump on a release branch.
+$branch = "release/v$newVersion"
+Invoke-Git switch -c $branch
 Set-Content $ConfigFile $content -NoNewline
-Write-Host "Version bumped: $oldVersion → $newVersion"
+Invoke-Git add $ConfigFile
+if (-not $Message) { $Message = "chore(release): v$newVersion" }
+Invoke-Git commit -m $Message -m "Bump the add-on version from $oldVersion to $newVersion so Home Assistant offers the update."
+Invoke-Git push -u origin $branch
+Write-Host "Version bumped: $oldVersion -> $newVersion"
 
-# ── 2. Stage everything (config.yaml + any other modified files) ───────────────
-git -C $RepoRoot add -A
-if ($LASTEXITCODE -ne 0) { Write-Error "git add failed"; exit 1 }
+# 4. Open the PR and enable auto-merge (squash) once required checks pass.
+gh pr create --repo techazm/ha-doorbell-intercom --base main --head $branch --title $Message `
+    --body "Release v$newVersion of the Doorbell Intercom add-on (bumps ``doorbell_intercom/config.yaml`` from $oldVersion)."
+if ($LASTEXITCODE -ne 0) { throw "gh pr create failed" }
+gh pr merge --repo techazm/ha-doorbell-intercom $branch --squash --auto --delete-branch
+if ($LASTEXITCODE -ne 0) { throw "gh pr merge --auto failed" }
 
-# ── 3. Build commit message ────────────────────────────────────────────────────
-if (-not $Message) {
-    $Message = "chore: release v$newVersion"
-}
-$fullMessage = "$Message`n`nCo-Authored-By: Oz <oz-agent@warp.dev>"
-
-git -C $RepoRoot commit -m $fullMessage
-if ($LASTEXITCODE -ne 0) { Write-Error "git commit failed"; exit 1 }
-
-# ── 4. Push (uses github-techazm SSH alias in ~/.ssh/config) ──────────────────
-git -C $RepoRoot push origin main
-if ($LASTEXITCODE -ne 0) { Write-Error "git push failed"; exit 1 }
-
+Invoke-Git switch main
 Write-Host ""
-Write-Host "Pushed v$newVersion to origin/main"
+Write-Host "Opened release PR for v$newVersion; it merges automatically when checks are green."
