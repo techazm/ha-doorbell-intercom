@@ -1,5 +1,6 @@
 {
   "name": "ha-doorbell-intercom-server",
+  "packageManager": "npm@11.17.0",
   "version": "1.0.0",
   "description": "Backend server for HA Doorbell Intercom add-on",
   "main": "server.js",
