@@ -31,6 +31,8 @@ jobs:
           cache: npm
           cache-dependency-path: |
             doorbell_intercom/server/package-lock.json
+      - name: Use the npm pinned in package.json
+        run: npm install -g --no-audit --no-fund "$(node -p "require('./doorbell_intercom/server/package.json').packageManager")"
       - name: Install doorbell_intercom/server (locked)
         run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: doorbell_intercom/server

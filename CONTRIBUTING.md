@@ -23,6 +23,9 @@ linear history (squash merges only).
 
 ## Local checks
 
+Use npm 11.17.0, the version pinned in `package.json` (`packageManager`), so lock files match CI:
+`npm install -g npm@11.17.0`.
+
 ```bash
 pip install pre-commit && pre-commit install   # once per clone
 cd doorbell_intercom/server && npm ci && node --check server.js
