@@ -50,3 +50,6 @@ coverage/
 .npm/
 .eslintcache
 npm-debug.log*
+
+# Local code graph (graphify)
+graphify-out/
